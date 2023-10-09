@@ -1,14 +1,11 @@
 ---
 layout: post
-title:  "Flexible Techniques for Differentiable Rendering with 3D Gaussians"
+title:  "MasKGrasp: Mask-based Grasping for Scenes with Multiple General Real-world Objects"
 date:   2023-08-28 22:21:59 +00:00
-image: /images/3dgaussian.jpg
+image: /images/maskgrasp.gif
 categories: research
-author: "Leo Keselman"
-authors: "<strong>Leonid Keselman</strong>, Martial Hebert"
-venue: "arXiv"
-arxiv: https://arxiv.org/abs/2308.14737
-code: https://github.com/leonidk/fmb-plus
-website: https://leonidk.github.io/fmb-plus
+author: "Junho Lee"
+authors: "<strong>Junho Lee</strong>, Junhwa Hur, Inwoo Hwang, Young Min Kim"
+venue: "IROS2022"
 ---
-We show how shape reconstruction with 3D Gaussians can be expanded to include differentiable optical flow, colored mesh exports and more. 
+We introduce a mask-based grasping method that discerns multiple objects within the scene regard-less of transparency or specularity and finds the optimal grasp position avoiding clutter. 
