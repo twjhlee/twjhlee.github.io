@@ -25,6 +25,7 @@
 </head>
 
 <body>
+
   <table style="width:100%;max-width:800px;border:0px;border-spacing:0px;border-collapse:separate;margin-right:auto;margin-left:auto;">
     <tr style="padding:0px">
       <td style="padding:0px">
@@ -62,42 +63,14 @@
             </td>
           </tr>
         </table>
-        <table style="width:100%;border:0px;border-spacing:0px;border-collapse:separate;margin-right:auto;margin-left:auto;">
-            <tr onmouseout="nfl_stop()" onmouseover="nfl_start()">
-                <td style="padding:20px;width:25%;vertical-align:middle">
-                  <div class="one">
-                    <div class='two' id='nfl_over'>
-                      <img src="images/thumbnail2.png" width="160">
-                    </div>
-                    <img src='images/thumbnail2.png' width="160">
-                  </div>
-                  <script type="text/javascript">
-                    function nfl_start() {
-                      document.getElementById('nfl_over').style.opacity = "1";
-                    }
-
-                    function nfl_stop() {
-                      document.getElementById('nfl_over').style.opacity = "0";
-                    }
-                    nfl_stop()
-                  </script>
-                </td>
-                <td style="padding:20px;width:75%;vertical-align:middle">
-                  <a href="https://ieeexplore.ieee.org/document/10328050">
-                    <papertitle> NFL: Normal Field Learning for 6-DoF Grasping of Transparent Objects
-                    </papertitle>
-                  </a>
-                  <br>
-                  <b>Junho Lee</b>, Sangmin Kim, Yonghyeon Lee, and Young Min Kim
-                  <br>
-                  <em>IEEE Robotics and Automation Letters (RA-L)</em>, 2023
-                  <br>
-                  <a href="https://ieeexplore.ieee.org/document/10328050">paper</a>
-                  <a href="https://youtu.be/b92CTDKeEk8?si=hTqxscnoFOv1oWOy">video</a>
-                  <p></p>
-                </td>
-            </tr>
-        </table>
+        <div class="pub" style="display: inline-block; width: 100%; margin: 20px 0 20px 0">
+            <p><img src="/images/thumbnail2.png" /></p>
+            <pubtit>NFL: Normal Field Learning for 6-DoF Grasping of Transparent Objects</pubtit>
+            <p><em>Junho Lee, Sang Min Kim, Yonghyeon Lee, Young Min Kim </em><br />
+            <strong>IEEE Robotics and Automation Letters 2023</strong><br /></p>
+            <p><strong><a href="https://ieeexplore.ieee.org/document/10328050">[pdf]</a></strong>
+            <strong><a href="https://youtu.be/b92CTDKeEk8">[video]</a></strong></p>
+        </div>
  
         <table style="width:100%;border:0px;border-spacing:0px;border-collapse:separate;margin-right:auto;margin-left:auto;">
             <tr onmouseout="maskgrasp_stop()" onmouseover="maskgrasp_start()">
