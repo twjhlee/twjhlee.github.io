@@ -1,0 +1,43 @@
+---
+layout: project
+title: "Teleop Demonstration Accumulation for Diffusion Policies"
+intro: "Diffusion policies require accumulation of demos.
+Based on webXR browser, we can teleoperate a real piper robot and pybullet simulation environment.
+The end-effector follows the twist of the handheld device.
+Handheld device twist sampled at 10 Hz, robot follows at 200 Hz."
+
+sections:
+  - title: "Teleoperation"
+    type: video
+    items:
+      - drive_id: "1D3mAzK14Fby4MgY7m3zktSG3IqFPqavp"
+        caption: "Teleoperation system with Piper (Agile-X) and realsense l515"
+        width: "48%"
+        aspect: "100%"
+      - drive_id: "14-1V6XM2aL1viugQ7jwK5xeA-vm7EVKr"
+        caption: "Teleoperation system in Pybullet with Franka Panda"
+        width: "48%"
+        aspect: "100%"
+
+  - title: "Deployment"
+    type: video
+    items:
+      - drive_id: "1JoPqdHK3ROGtryPtEu0OXSWE9pwYfxpY"
+        caption: "Success"
+        width: "48%"
+        aspect: "100%"
+      - drive_id: "10wCeHBTsJ1oeFNQFVcPQXOzKeCkpI98t"
+        caption: "Fail"
+        width: "48%"
+        aspect: "100%"
+
+  - title: "Captured Input"
+    type: image
+    items:
+      - src: /images/rgb_pybullet.gif
+        caption: "RGB input"
+        width: "48%"
+      - src: /images/depth_pybullet.gif
+        caption: "Depth input"
+        width: "48%"
+---
