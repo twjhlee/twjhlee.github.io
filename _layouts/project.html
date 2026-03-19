@@ -1,0 +1,138 @@
+<!DOCTYPE HTML>
+<html lang="en">
+
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-E00L9PT3V9"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-E00L9PT3V9');
+  </script>
+  <title>{{ page.title }} | {{ site.name }}</title>
+
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="author" content="{{ site.name }}" />
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <link rel="stylesheet" href="/main.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css?family=Montserrat:400,500,600,700,400italic,700italic" rel="stylesheet" type="text/css">
+
+  <style>
+    .project-container {
+      width: 100%;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px 2.5%;
+    }
+    .project-back {
+      margin-bottom: 20px;
+    }
+    .project-title {
+      margin-bottom: 10px;
+    }
+    .project-section {
+      margin-top: 30px;
+    }
+    .project-section h3 {
+      border-bottom: 1px solid #ddd;
+      padding-bottom: 6px;
+      margin-bottom: 14px;
+    }
+    .project-image-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .project-image-grid img {
+      max-width: 100%;
+      border-radius: 4px;
+    }
+    .project-video-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: flex-start;
+    }
+    .video-item {
+      box-sizing: border-box;
+    }
+    .video-wrapper {
+      position: relative;
+      height: 0;
+      overflow: hidden;
+    }
+    .video-wrapper iframe {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      border: 0;
+    }
+    .project-footer {
+      margin-top: 40px;
+      text-align: center;
+      font-size: small;
+      color: #888;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="project-container">
+
+    <div class="project-back">
+      <a href="/"><i class="fa-solid fa-arrow-left"></i> Back</a>
+    </div>
+
+    <h1 class="project-title">{{ page.title }}</h1>
+
+    <!-- Introduction -->
+    <div class="project-section">
+      <h3>Introduction</h3>
+      <p>{{ page.intro }}</p>
+    </div>
+
+    <!-- Sections -->
+    {% for section in page.sections %}
+    <div class="project-section">
+      <h3>{{ section.title }}</h3>
+
+      {% if section.type == "video" %}
+      <div class="project-video-grid">
+        {% for vid in section.items %}
+        {% assign vid_width = vid.width | default: "100%" %}
+        {% assign vid_aspect = vid.aspect | default: "56.25%" %}
+        <div class="video-item" style="width:{{ vid_width }}">
+          <div class="video-wrapper" style="padding-bottom:{{ vid_aspect }}">
+            <iframe src="https://drive.google.com/file/d/{{ vid.drive_id }}/preview" allowfullscreen allow="autoplay"></iframe>
+          </div>
+          {% if vid.caption %}<p style="font-size:small; color:#666; margin:6px 0 0;">{{ vid.caption }}</p>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+
+      {% elsif section.type == "image" %}
+      <div class="project-image-grid">
+        {% for img in section.items %}
+        <div style="width:{{ img.width | default: '100%' }}; box-sizing:border-box;">
+          <img src="{{ img.src }}" alt="{{ img.caption }}" style="width:100%; border-radius:4px;">
+          {% if img.caption %}<p style="font-size:small; color:#666; margin:4px 0 8px;">{{ img.caption }}</p>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+    </div>
+    {% endfor %}
+
+    <div class="project-footer">
+      <a href="/">{{ site.name }}</a>
+    </div>
+
+  </div>
+</body>
+
+</html>
