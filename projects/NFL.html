@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NFL — Normal Field Learning for 6-DoF Grasping of Transparent Objects</title>
+<meta name="description" content="NFL: a neural volume trained on estimated surface normals and masks (instead of RGB) that reconstructs transparent objects in 40 seconds and drives real-world 6-DoF grasping.">
+
+<!-- ============================================================
+     FONTS
+     Space Grotesk = display, Inter = body, JetBrains Mono = data/labels
+============================================================ -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+/* ============================================================
+   DESIGN TOKENS
+   Theme: "glass and normal map" — the accent (violet) is pulled
+   straight from the RGB-encoded surface normals in the paper's
+   own figures, on a clean white/glass canvas.
+============================================================ */
+:root{
+  --bg:            #FFFFFF;
+  --bg-2:          #F5F5FA;
+  --surface:       #FAFAFC;
+  --hairline:      #DCDCE6;
+  --hairline-soft: #E9E9F1;
+
+  --ink:           #14141F;
+  --ink-dim:       #4B4B5C;
+  --ink-faint:     #9797A8;
+
+  --normal:        #7C3AED;  /* violet — surface normal accent */
+  --normal-deep:   #6D28D9;
+  --density:       #0EA5A0;  /* teal — density / mask accent */
+  --fail:          #DC5B5B;  /* rejects / baseline failure */
+
+  --measure: 68ch;
+  --pad: clamp(1.25rem, 4vw, 4rem);
+
+  --f-display: "Space Grotesk", system-ui, sans-serif;
+  --f-body: "Inter", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+*{ box-sizing:border-box; }
+html{ scroll-behavior:smooth; }
+@media (prefers-reduced-motion: reduce){ html{ scroll-behavior:auto; } }
+
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--f-body);
+  font-size:17px;
+  line-height:1.7;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+
+.grid-atmos{
+  background-image:
+    linear-gradient(var(--hairline-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--hairline-soft) 1px, transparent 1px);
+  background-size: 46px 46px;
+}
+
+a{ color:var(--normal-deep); text-decoration:none; }
+a:hover{ text-decoration:underline; text-underline-offset:3px; }
+
+::selection{ background:var(--normal); color:#fff; }
+
+.mono{ font-family:var(--f-mono); }
+.eyebrow{
+  font-family:var(--f-mono);
+  font-size:.72rem;
+  letter-spacing:.22em;
+  text-transform:uppercase;
+  color:var(--ink-faint);
+}
+
+.wrap{ max-width:1180px; margin:0 auto; padding-inline:var(--pad); }
+.narrow{ max-width:760px; }
+
+section{ padding-block: clamp(3.5rem, 8vw, 7rem); }
+
+/* ============================================================
+   NAV
+============================================================ */
+nav.top{
+  position:sticky; top:0; z-index:50;
+  background:rgba(255,255,255,.92);
+  backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--hairline);
+}
+nav.top .wrap{
+  display:flex; align-items:center; justify-content:space-between;
+  padding-block:.85rem;
+}
+.brand{ display:flex; align-items:baseline; gap:.7rem; }
+.brand .name{ font-family:var(--f-display); font-weight:700; letter-spacing:.02em; font-size:1.05rem; }
+.brand .pid{ font-family:var(--f-mono); font-size:.7rem; color:var(--ink-faint); border:1px solid var(--hairline); border-radius:4px; padding:.15rem .45rem; }
+.nav-links{ display:flex; gap:1.6rem; font-family:var(--f-mono); font-size:.78rem; letter-spacing:.04em; }
+.nav-links a{ color:var(--ink-dim); text-transform:uppercase; }
+.nav-links a:hover{ color:var(--ink); text-decoration:none; }
+@media (max-width:800px){ .nav-links{ display:none; } }
+
+/* ============================================================
+   HERO
+============================================================ */
+.hero{ position:relative; overflow:hidden; border-bottom:1px solid var(--hairline); }
+.hero .grid-atmos{
+  position:absolute; inset:0;
+  -webkit-mask-image:radial-gradient(120% 90% at 50% 0%, #000 0%, transparent 70%);
+          mask-image:radial-gradient(120% 90% at 50% 0%, #000 0%, transparent 70%);
+  opacity:.5; pointer-events:none;
+}
+.hero .wrap{ position:relative; padding-block: clamp(3rem,7vw,5.5rem) clamp(2.5rem,6vw,4rem); }
+
+.venue{ display:flex; gap:1.4rem; flex-wrap:wrap; align-items:center; margin-bottom:2rem; }
+.venue .tag{
+  font-family:var(--f-mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--normal-deep); border:1px solid color-mix(in srgb, var(--normal) 40%, transparent);
+  border-radius:100px; padding:.3rem .8rem;
+}
+.venue .anon{ font-family:var(--f-mono); font-size:.75rem; color:var(--ink-faint); }
+
+h1.title{
+  font-family:var(--f-display);
+  font-weight:700;
+  font-size:clamp(2.3rem, 6.2vw, 4.6rem);
+  line-height:1.03;
+  letter-spacing:-.02em;
+  margin:0 0 1.2rem;
+  max-width:18ch;
+}
+h1.title .acr{ color:var(--normal-deep); }
+.lede{
+  font-size:clamp(1.05rem,2vw,1.28rem);
+  color:var(--ink-dim);
+  max-width:58ch;
+  line-height:1.55;
+  margin:0 0 2.2rem;
+}
+
+.actions{ display:flex; flex-wrap:wrap; gap:.7rem; }
+.btn{
+  display:inline-flex; align-items:center; gap:.55rem;
+  font-family:var(--f-mono); font-size:.82rem; letter-spacing:.02em;
+  padding:.7rem 1.15rem; border-radius:8px;
+  border:1px solid var(--hairline);
+  background:var(--surface); color:var(--ink);
+  transition:border-color .2s, transform .2s, background .2s;
+}
+.btn:hover{ border-color:var(--normal); transform:translateY(-2px); text-decoration:none; }
+.btn.primary{ background:var(--normal); color:#fff; border-color:var(--normal); font-weight:600; }
+.btn.primary:hover{ background:var(--normal-deep); }
+.btn svg{ width:15px; height:15px; }
+
+.teaser{ margin-top:clamp(2.5rem,5vw,3.5rem); }
+
+/* ============================================================
+   FIGURES
+============================================================ */
+.figure{ margin:0; }
+img.fig{ width:100%; height:auto; display:block; border-radius:12px; border:1px solid var(--hairline); background:var(--surface); }
+figcaption{
+  font-family:var(--f-mono); font-size:.78rem; color:var(--ink-faint);
+  line-height:1.55; margin-top:.9rem;
+}
+figcaption b{ color:var(--ink-dim); font-weight:500; }
+
+/* ============================================================
+   SECTION HEADS
+============================================================ */
+.head{ margin-bottom:2.5rem; }
+.head .eyebrow{ display:block; margin-bottom:.9rem; }
+.head h2{
+  font-family:var(--f-display); font-weight:600;
+  font-size:clamp(1.7rem,3.6vw,2.5rem); line-height:1.1; letter-spacing:-.015em;
+  margin:0; max-width:24ch;
+}
+.head p.sub{ color:var(--ink-dim); max-width:var(--measure); margin:1rem 0 0; }
+
+.prose p{ max-width:var(--measure); }
+.prose p + p{ margin-top:1.1rem; }
+.prose strong{ color:var(--ink); font-weight:600; }
+
+.abstract{
+  border-left:2px solid var(--normal);
+  padding-left:1.6rem;
+}
+.abstract .eyebrow{ margin-bottom:.8rem; }
+.abstract p{ font-size:1.08rem; color:var(--ink); max-width:var(--measure); }
+
+/* ============================================================
+   WHY SIGMA FAILS — two comparison cards
+============================================================ */
+.amb-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:1.5rem; margin-top:2.5rem; }
+@media (max-width:760px){ .amb-grid{ grid-template-columns:1fr; } }
+.amb{
+  background:var(--surface); border:1px solid var(--hairline); border-radius:14px;
+  padding:1.6rem; display:flex; flex-direction:column; gap:1rem;
+}
+.amb .kind{ font-family:var(--f-mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; }
+.amb.bad .kind{ color:var(--fail); }
+.amb.good .kind{ color:var(--density); }
+.amb h3{ font-family:var(--f-display); font-weight:600; font-size:1.15rem; margin:0; }
+.amb p{ color:var(--ink-dim); margin:0; font-size:.96rem; }
+
+/* ============================================================
+   PIPELINE
+============================================================ */
+.pipeline{ display:grid; gap:1px; background:var(--hairline); border:1px solid var(--hairline); border-radius:14px; overflow:hidden; }
+.step{
+  background:var(--surface);
+  display:grid; grid-template-columns:auto 1fr; gap:1.4rem;
+  padding:1.7rem clamp(1.2rem,3vw,2.2rem);
+  transition:background .25s;
+}
+.step:hover{ background:var(--bg-2); }
+.step .num{
+  font-family:var(--f-display); font-weight:700; font-size:1.15rem;
+  color:var(--normal-deep);
+  border:1px solid color-mix(in srgb,var(--normal) 30%, transparent);
+  border-radius:8px; width:2.7rem; height:2.7rem;
+  display:grid; place-items:center; align-self:start;
+}
+.step h3{ font-family:var(--f-display); font-weight:600; font-size:1.15rem; margin:0 0 .4rem; }
+.step p{ color:var(--ink-dim); margin:0; font-size:.98rem; max-width:64ch; }
+.step .k{ color:var(--density); font-family:var(--f-mono); font-size:.9em; }
+
+/* ============================================================
+   RESULTS TABLES
+============================================================ */
+.table-scroll{ overflow-x:auto; border:1px solid var(--hairline); border-radius:14px; }
+table{
+  border-collapse:collapse; width:100%; min-width:560px;
+  font-family:var(--f-mono); font-size:.82rem;
+}
+caption{
+  caption-side:top; text-align:left; padding:1.1rem 1.2rem .3rem;
+  font-family:var(--f-mono); font-size:.78rem; color:var(--ink-faint); line-height:1.55;
+}
+thead th{
+  text-align:right; padding:.7rem .9rem;
+  color:var(--ink-dim); font-weight:500; letter-spacing:.03em;
+  border-bottom:1px solid var(--hairline); white-space:nowrap;
+}
+thead th:first-child{ text-align:left; }
+tbody td{ padding:.6rem .9rem; text-align:right; border-bottom:1px solid var(--hairline-soft); color:var(--ink-dim); white-space:nowrap; }
+tbody td:first-child{ text-align:left; color:var(--ink); }
+tbody tr:last-child td{ border-bottom:none; }
+tbody tr.ours{ background:color-mix(in srgb,var(--normal) 7%, transparent); }
+tbody tr.ours td:first-child{ color:var(--normal-deep); }
+.best{ color:var(--ink); font-weight:600; }
+.group-rule td{ border-top:1px solid var(--hairline); }
+.tbl-note{ font-family:var(--f-mono); font-size:.74rem; color:var(--ink-faint); margin-top:.8rem; }
+
+.two-col{ display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; align-items:start; }
+@media (max-width:860px){ .two-col{ grid-template-columns:1fr; } }
+
+/* ============================================================
+   CONTRIBUTIONS
+============================================================ */
+.contribs{ display:grid; grid-template-columns:repeat(2,1fr); gap:1.5rem; margin-top:2rem; }
+@media (max-width:860px){ .contribs{ grid-template-columns:1fr; } }
+.contrib{ border-top:2px solid var(--density); padding-top:1.1rem; }
+.contrib .n{ font-family:var(--f-mono); font-size:.75rem; color:var(--ink-faint); letter-spacing:.1em; }
+.contrib p{ margin:.5rem 0 0; color:var(--ink-dim); font-size:.98rem; }
+
+/* ============================================================
+   LIMITATIONS
+============================================================ */
+.limits{ display:grid; gap:1rem; margin-top:1.5rem; }
+.limit{ display:grid; grid-template-columns:auto 1fr; gap:1rem; align-items:baseline; padding:1.1rem 0; border-bottom:1px solid var(--hairline-soft); }
+.limit .dot{ width:8px; height:8px; border-radius:50%; background:var(--fail); margin-top:.5rem; }
+.limit p{ margin:0; color:var(--ink-dim); max-width:var(--measure); }
+.limit p b{ color:var(--ink); font-weight:600; }
+
+/* ============================================================
+   BIBTEX
+============================================================ */
+.bibtex{ position:relative; }
+.bibtex pre{
+  background:var(--bg-2); border:1px solid var(--hairline); border-radius:12px;
+  padding:1.4rem 1.5rem; overflow-x:auto;
+  font-family:var(--f-mono); font-size:.82rem; line-height:1.7; color:var(--ink-dim);
+  margin:0;
+}
+.copy-btn{
+  position:absolute; top:.9rem; right:.9rem;
+  font-family:var(--f-mono); font-size:.72rem; letter-spacing:.06em;
+  background:var(--surface); border:1px solid var(--hairline); color:var(--ink-dim);
+  border-radius:6px; padding:.35rem .7rem; cursor:pointer; transition:.2s;
+}
+.copy-btn:hover{ border-color:var(--normal); color:var(--normal-deep); }
+
+/* ============================================================
+   FOOTER
+============================================================ */
+footer{ border-top:1px solid var(--hairline); padding-block:2.5rem; }
+footer .wrap{ display:flex; justify-content:space-between; flex-wrap:wrap; gap:1rem; }
+footer p{ font-family:var(--f-mono); font-size:.76rem; color:var(--ink-faint); margin:0; }
+
+/* ============================================================
+   SCROLL REVEAL
+============================================================ */
+.rise{ opacity:0; transform:translateY(18px); transition:opacity .7s ease, transform .7s ease; }
+.rise.in{ opacity:1; transform:none; }
+@media (prefers-reduced-motion: reduce){
+  .rise{ opacity:1; transform:none; transition:none; }
+}
+
+/* ============================================================
+   VIDEO EMBED
+============================================================ */
+.video-wrap{
+  position:relative; width:100%; padding-top:56.25%;
+  border-radius:14px; overflow:hidden;
+  border:1px solid var(--hairline);
+  background:var(--bg-2);
+}
+.video-wrap iframe{
+  position:absolute; inset:0; width:100%; height:100%; border:none;
+}
+
+:focus-visible{ outline:2px solid var(--normal); outline-offset:3px; border-radius:4px; }
+</style>
+</head>
+<body>
+
+<!-- ========================= NAV ========================= -->
+<nav class="top">
+  <div class="wrap">
+    <div class="brand">
+      <span class="name">NFL</span>
+      <span class="pid">RA-L&nbsp;2024</span>
+    </div>
+    <div class="nav-links">
+      <a href="#abstract">Abstract</a>
+      <a href="#video">Video</a>
+      <a href="#problem">Problem</a>
+      <a href="#method">Method</a>
+      <a href="#results">Results</a>
+      <a href="#bibtex">BibTeX</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ========================= HERO ========================= -->
+<header class="hero">
+  <div class="grid-atmos"></div>
+  <div class="wrap">
+    <div class="venue">
+      <span class="tag">IEEE Robotics and Automation Letters (RA-L), 2024</span>
+      <span class="anon">Junho Lee, Sang Min Kim, Yonghyeon Lee, Young Min Kim</span>
+    </div>
+
+    <h1 class="title"><span class="acr">NFL</span>: Normal Field Learning for 6-DoF Grasping of Transparent Objects</h1>
+
+    <p class="lede">Transparent objects break NeRF's density &sigma; — on a perfectly clear surface it should be zero, since &sigma; encodes opacity, not existence. NFL sidesteps the problem: instead of training on RGB, it trains a feature-free voxel grid directly on <em>estimated surface normals and masks</em>, reconstructing accurate geometry in 40 seconds and grasping straight from the grid — no depth rendering required.</p>
+
+    <div class="actions">
+      <a class="btn primary" href="https://ieeexplore.ieee.org/document/10328050" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3v5h5M8 13h8M8 17h8M8 9h2"/><path d="M6 2h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/></svg>
+        Paper (IEEE Xplore)
+      </a>
+      <a class="btn" href="https://github.com/twjhlee/Normal-Field-Learning" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.3 4.3 0 0 0-.1-3.2s-1-.3-3.5 1.3a12 12 0 0 0-6.3 0C6.5 2.8 5.5 3.1 5.5 3.1a4.3 4.3 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg> Code</a>
+      <a class="btn" href="https://youtu.be/b92CTDKeEk8" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m10 8 6 4-6 4V8z"/><rect x="2" y="4" width="20" height="16" rx="2"/></svg> Video</a>
+    </div>
+
+    <!-- ===== TEASER FIGURE ===== -->
+    <figure class="figure teaser rise">
+      <img class="fig" src="NFL_RAL_final/RAL_normal_grasping/imgs/png/thumbnail.png" alt="Overview of NFL: RGB capture from a robot arm, the reconstructed grid-based normal field, and the resulting grasp algorithm">
+      <figcaption><b>Fig. 1 — Overview.</b> NFL collects RGB images with a robot arm (a), represents the scene as a grid-based normal field (b), and searches for viable grasps directly from the reconstructed geometry (c).</figcaption>
+    </figure>
+  </div>
+</header>
+
+<main>
+
+<!-- ========================= VIDEO ========================= -->
+<section id="video" style="background:var(--bg-2); border-block:1px solid var(--hairline);">
+  <div class="wrap">
+    <div class="head rise">
+      <span class="eyebrow">Video</span>
+      <h2>Overview video.</h2>
+    </div>
+    <div class="video-wrap rise">
+      <iframe src="https://www.youtube.com/embed/b92CTDKeEk8" title="NFL overview video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= ABSTRACT ========================= -->
+<section id="abstract">
+  <div class="wrap narrow abstract rise">
+    <span class="eyebrow">Abstract</span>
+    <p>We present Normal Field Learning (NFL), a robust yet practical solution to perceive 3D layouts of transparent objects and grasp them quickly. Conventional input modalities do not provide sufficient information for transparent objects, but with recent advances in datasets and algorithms for transparent objects, we can obtain noisy estimates of normals and masks for various real-world conditions. Instead of directly using RGB images, we use these estimates to train a neural volume that serves as an intermediate representation ignorant of challenging appearance variations. We formulate the training objective to account for inherent uncertainty in individual estimations, and together with volumetric aggregation, we can reliably extract useful geometric information for grasping. Our neural volume deploys a voxel-grid based representation, motivated by acceleration techniques of neural radiance fields — but we directly store normal and density values in the grid cells instead of latent features, allowing direct access to geometric values without additional inference or volume rendering. Our results show over 85% success rates in grasping in cluttered scenes with only 40 seconds of training time.</p>
+  </div>
+</section>
+
+<!-- ========================= THE PROBLEM ========================= -->
+<section id="problem" style="background:var(--bg-2); border-block:1px solid var(--hairline);">
+  <div class="wrap">
+    <div class="head rise">
+      <span class="eyebrow">Why RGB-trained NeRF fails on glass</span>
+      <h2>Density &sigma; means opacity — and a perfectly transparent surface has none.</h2>
+      <p class="sub">Dex-NeRF and Evo-NeRF threshold &sigma; from an RGB-trained NeRF to render a depth image. That works when the object leaves visual evidence (edges, refraction). It collapses when it doesn't.</p>
+    </div>
+
+    <div class="amb-grid">
+      <div class="amb bad rise">
+        <span class="kind">RGB-trained &sigma;</span>
+        <h3>Opacity, not existence.</h3>
+        <p>For a perfectly transparent surface, the correct volume density is exactly zero — by definition. Any grasping pipeline that infers geometry from RGB-trained &sigma; inherits this failure mode.</p>
+      </div>
+      <div class="amb good rise">
+        <span class="kind">Normal-trained &sigma;, n</span>
+        <h3>Existence, directly.</h3>
+        <p>NFL instead regresses pixel-wise surface normal and mask estimates. Here &sigma; is only ever asked "is a surface here," decoupled entirely from how transparent that surface looks in RGB.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= METHOD ========================= -->
+<section id="method">
+  <div class="wrap">
+    <div class="head rise">
+      <span class="eyebrow">The pipeline</span>
+      <h2>A probabilistic normal field, trained without RGB or MLPs.</h2>
+      <p class="sub">Pre-trained networks give noisy per-pixel normal and mask estimates; NFL aggregates them into a coherent volume, weighting each pixel by how much to trust it — then grasps directly off the grid.</p>
+    </div>
+
+    <div class="pipeline rise">
+      <div class="step">
+        <div class="num">i</div>
+        <div>
+          <h3>Stochastic normals &amp; masks from RGB</h3>
+          <p>A pre-trained estimator predicts normals under <span class="k">m</span> color-jittered augmentations of each image; the spread of the <span class="k">m</span> outputs at a pixel becomes its uncertainty, fit as a <span class="k">von Mises&#8211;Fisher</span> distribution on S². The segmentation mask's per-pixel probability is modeled as a <span class="k">Bernoulli</span> distribution.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">ii</div>
+        <div>
+          <h3>Maximum-likelihood volume rendering</h3>
+          <p>Standard NeRF-style ray marching accumulates <span class="k">n(x)</span> and <span class="k">&sigma;(x)</span> into a projected normal per pixel, then minimizes its negative log-likelihood under the fitted vMF distribution — so confident (high-&kappa;) pixels dominate the loss, sampled through the Bernoulli mask so background rays never contribute.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">iii</div>
+        <div>
+          <h3>Feature-free voxel grid</h3>
+          <p>Built on DVGO's grid acceleration, but with the intermediate MLP removed entirely: each grid cell stores raw density and normal values, not latent features. A full scene trains in <span class="k">~40 seconds</span> from 30 real images.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">iv</div>
+        <div>
+          <h3>Grasp candidates &amp; collision-free planning</h3>
+          <p>Threshold the density grid for surface points, pair up antipodal points within gripper width where both normals face each other (<span class="k">n·(x&#8322;&#8321;) &ge; 0.99</span>), rank by summed density, then test 8 pitch angles per candidate against the surface point cloud for a collision-free path via PyBullet.</p>
+        </div>
+      </div>
+    </div>
+
+    <figure class="figure rise" style="margin-top:2.5rem;">
+      <img class="fig" src="NFL_RAL_final/RAL_normal_grasping/imgs/png/overview.png" alt="Diagram of the probabilistic normal field learning framework: RGB and augmented images feed mask and normal networks producing mask, normal mean, and normal uncertainty; these train a normal field volume; grasp poses are sampled from the resulting geometry">
+      <figcaption><b>Fig. 2 — Framework.</b> Test-time augmentation yields per-pixel normal mean &mu; and confidence &kappa;, plus a mask probability. The volume is trained by maximum likelihood on these; grasps are then sampled directly from the resulting normal &amp; density grid.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ========================= INPUT MODALITY ========================= -->
+<section id="modality" style="background:var(--bg-2); border-block:1px solid var(--hairline);">
+  <div class="wrap">
+    <div class="head rise">
+      <span class="eyebrow">Ablation · input modality</span>
+      <h2>Normals and masks reconstruct transparent geometry — RGB doesn't.</h2>
+      <p class="sub">Same images, same camera poses, four input modalities. Depth accuracy &delta;<sub>&tau;</sub> is the fraction of object pixels within &tau; of ground-truth depth (ClearGrasp protocol), on both grid-based (DVGO) and non-grid-based (NeRF) backbones.</p>
+    </div>
+
+    <figure class="figure rise" style="margin-bottom:2.5rem;">
+      <img class="fig" src="NFL_RAL_final/RAL_normal_grasping/imgs/png/input_modality.png" alt="Error maps of reconstructed depth for four input modalities (normal, mask, normal+mask, RGB) on DVGO and NeRF backbones, red is high error and blue is low error">
+      <figcaption><b>Fig. 3 — Error maps by modality.</b> RGB (right column) fails outright on both backbones; normal + mask together (third column) gives the cleanest reconstruction.</figcaption>
+    </figure>
+
+    <div class="table-scroll rise">
+      <table>
+        <caption><b>Table I — Depth reconstruction by input modality.</b> Accuracy &delta;<sub>&tau;</sub> (higher is better) at thresholds 5%, 10%, 25% of ground-truth depth. Bold = best per backbone.</caption>
+        <thead>
+          <tr>
+            <th>Threshold</th>
+            <th>Normal (DVGO)</th><th>Mask (DVGO)</th><th>Normal+Mask (DVGO)</th><th>RGB (DVGO)</th>
+            <th>Normal (NeRF)</th><th>Mask (NeRF)</th><th>Normal+Mask (NeRF)</th><th>RGB (NeRF)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>&delta;<sub>0.05</sub></td><td>11.48%</td><td>90.57%</td><td class="best">96.85%</td><td>19.13%</td><td>83.01%</td><td>89.94%</td><td class="best">93.40%</td><td>27.17%</td></tr>
+          <tr><td>&delta;<sub>0.10</sub></td><td>72.30%</td><td>94.18%</td><td class="best">97.52%</td><td>38.02%</td><td>92.26%</td><td>94.33%</td><td class="best">96.97%</td><td>56.25%</td></tr>
+          <tr><td>&delta;<sub>0.25</sub></td><td class="best">99.10%</td><td>97.78%</td><td>98.17%</td><td>82.47%</td><td>99.66%</td><td>98.72%</td><td class="best">99.93%</td><td>93.81%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="tbl-note">Masks alone miss concave parts of a bottle; normals alone are noisy on a grid backbone. Combined, they beat RGB by 40&ndash;80 points at the tightest threshold.</p>
+  </div>
+</section>
+
+<!-- ========================= RESULTS ========================= -->
+<section id="results">
+  <div class="wrap">
+    <div class="head rise">
+      <span class="eyebrow">Experiments · synthetic + real-world grasping</span>
+      <h2>Best reconstruction, best grasp success, and an order of magnitude faster.</h2>
+      <p class="sub">Evaluated against NeRF, DVGO, Dex-NeRF, Dex-DVGO (our thresholded-DVGO baseline) and GraspNeRF, on a photorealistic Blender scene and a real Franka Panda + RealSense D435i setup.</p>
+    </div>
+
+    <figure class="figure rise" style="margin-bottom:2.5rem;">
+      <img class="fig" src="NFL_RAL_final/RAL_normal_grasping/imgs/png/qual_blender.png" alt="Depth and error maps for NFL, Dex-DVGO, and Dex-NeRF on the Blender synthetic scene">
+      <figcaption><b>Fig. 4 — Synthetic scene.</b> Top: rendered depth. Bottom: error vs. ground truth (red = high error, blue = low error). NFL is uniformly accurate; Dex-DVGO fails outright.</figcaption>
+    </figure>
+
+    <div class="table-scroll rise">
+      <table>
+        <caption><b>Table II — Depth reconstruction, Blender scene.</b> 3 glass objects, 100 input images, trained to convergence. Bold = best.</caption>
+        <thead>
+          <tr><th>Model</th><th>&delta;<sub>0.05</sub></th><th>&delta;<sub>0.10</sub></th><th>&delta;<sub>0.25</sub></th><th>Train time</th></tr>
+        </thead>
+        <tbody>
+          <tr class="ours"><td>NFL</td><td class="best">85.35%</td><td class="best">92.64%</td><td class="best">97.49%</td><td class="best">2&nbsp;min</td></tr>
+          <tr><td>Dex-DVGO</td><td>20.48%</td><td>29.25%</td><td>46.50%</td><td>15&nbsp;min</td></tr>
+          <tr><td>DVGO</td><td>19.13%</td><td>38.02%</td><td>82.47%</td><td>15&nbsp;min</td></tr>
+          <tr><td>Dex-NeRF</td><td>74.96%</td><td>81.39%</td><td>95.15%</td><td>12&nbsp;hr</td></tr>
+          <tr><td>NeRF</td><td>27.17%</td><td>56.25%</td><td>93.81%</td><td>12&nbsp;hr</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="tbl-note">Removing the MLP that grid-based baselines need for novel-view synthesis is what takes NFL from 15 minutes to 2 minutes.</p>
+
+    <div class="two-col" style="margin-top:2.5rem;">
+      <figure class="figure rise">
+        <img class="fig" src="NFL_RAL_final/RAL_normal_grasping/imgs/png/qual_ours.png" alt="Reconstructed geometry across real-world, Dex-NeRF-dataset, and Blender scenes, comparing NFL, GraspNeRF, Dex-NeRF, and Dex-DVGO">
+        <figcaption><b>Fig. 5 — Robustness across scenes.</b> NFL builds a coherent normal field with the same setup across all three scenes; GraspNeRF finds the ground but its object geometry fluctuates; Dex-NeRF and Dex-DVGO fail on our low-visual-cue real-world images.</figcaption>
+      </figure>
+      <figure class="figure rise">
+        <img class="fig" src="NFL_RAL_final/RAL_normal_grasping/imgs/png/grasp_setting.png" alt="Ten glass laboratory objects used for grasping, and the RealSense D435i camera mounted on the Franka Panda gripper">
+        <figcaption><b>Fig. 6 — Real-world setup.</b> Ten glass lab objects of varying size, imaged by a RealSense D435i 3D-printed to the Franka Panda end effector.</figcaption>
+      </figure>
+    </div>
+
+    <div class="table-scroll rise" style="margin-top:2.5rem;">
+      <table>
+        <caption><b>Table III — Real-world grasp success, 7 trials per configuration.</b> Single Small / Single Big are sized relative to gripper width; Clutter packs 6 objects into a 30&times;30&nbsp;cm region. Bold = best.</caption>
+        <thead>
+          <tr><th>Model</th><th>Single Small</th><th>Single Big</th><th>Clutter</th><th>Time</th></tr>
+        </thead>
+        <tbody>
+          <tr class="ours"><td>NFL</td><td class="best">71.43%</td><td class="best">57.14%</td><td class="best">85.71%</td><td>40&nbsp;sec</td></tr>
+          <tr><td>GraspNeRF</td><td>14.28%</td><td>14.28%</td><td>28.57%</td><td class="best">90&nbsp;ms</td></tr>
+          <tr><td>Dex-NeRF</td><td>28.57%</td><td>0%</td><td>28.57%</td><td>12&nbsp;hr</td></tr>
+          <tr><td>Dex-DVGO</td><td>0%</td><td>0%</td><td>0%</td><td>15&nbsp;min</td></tr>
+          <tr><td>NeRF</td><td>0%</td><td>0%</td><td>14.28%</td><td>12&nbsp;hr</td></tr>
+          <tr><td>DVGO</td><td>14.28%</td><td>0%</td><td>0%</td><td>15&nbsp;min</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="tbl-note">Every baseline collapses on Single Big, where the grasp width is comparable to the open gripper and pin-point geometry is required. NFL still succeeds over half the time. In Clutter, its rich, holistic reconstruction gives more candidate grasps to choose from — GraspNeRF answers fastest but its geometry is the least reliable of the two runners-up.</p>
+  </div>
+</section>
+
+<!-- ========================= CONTRIBUTIONS ========================= -->
+<section id="contributions" style="background:var(--bg-2); border-block:1px solid var(--hairline);">
+  <div class="wrap">
+    <div class="head rise">
+      <span class="eyebrow">Contributions</span>
+      <h2>What NFL adds.</h2>
+    </div>
+    <div class="contribs">
+      <div class="contrib rise">
+        <div class="n">01</div>
+        <p>Trains the neural volume from estimated surface normals and masks rather than raw RGB, giving markedly more accurate geometric reconstruction for transparent objects.</p>
+      </div>
+      <div class="contrib rise">
+        <div class="n">02</div>
+        <p>A probabilistic framework robust to prediction errors, modeling normal uncertainty as von Mises&#8211;Fisher and mask uncertainty as Bernoulli, both folded into the training loss.</p>
+      </div>
+      <div class="contrib rise">
+        <div class="n">03</div>
+        <p>Removes the MLP that grid-based NeRF variants keep for novel-view synthesis, since normal fields don't need it &mdash; cutting training to ~40 seconds.</p>
+      </div>
+      <div class="contrib rise">
+        <div class="n">04</div>
+        <p>Grasps directly from grid values &mdash; no volume rendering of depth images required &mdash; unlike prior NeRF-based grasping work (Dex-NeRF, Evo-NeRF).</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= LIMITATIONS ========================= -->
+<section id="limitations">
+  <div class="wrap narrow">
+    <div class="head rise">
+      <span class="eyebrow">Conclusion &amp; limitations</span>
+      <h2>Honest edges.</h2>
+      <p class="sub">NFL reconstructs accurate, holistic 3D geometry of transparent objects in 40 seconds and grasps reliably across configurations &mdash; with room to grow.</p>
+    </div>
+    <div class="limits">
+      <div class="limit rise"><span class="dot"></span><p><b>Still slower than feed-forward methods.</b> Even with the MLP removed, NFL is slower than GraspNeRF's ~90ms inference; faster training would help refresh geometry mid sequential-grasping.</p></div>
+      <div class="limit rise"><span class="dot"></span><p><b>Needs a bounded, surrounded workspace.</b> NFL reconstructs from images captured around a known volume &mdash; it wasn't evaluated on datasets like HAMMER, which only image objects from one side.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= BIBTEX ========================= -->
+<section id="bibtex" style="background:var(--bg-2); border-block:1px solid var(--hairline);">
+  <div class="wrap narrow">
+    <div class="head rise">
+      <span class="eyebrow">Cite</span>
+      <h2>BibTeX</h2>
+    </div>
+    <div class="bibtex rise">
+      <button class="copy-btn" id="copyBib">Copy</button>
+      <pre id="bibText">@article{lee2024nfl,
+  author={Lee, Junho and Kim, Sang Min and Lee, Yonghyeon and Kim, Young Min},
+  journal={IEEE Robotics and Automation Letters},
+  title={{NFL}: Normal Field Learning for 6-{DoF} Grasping of Transparent Objects},
+  year={2024},
+  volume={9},
+  number={1},
+  pages={819-826},
+  doi={10.1109/LRA.2023.3336108}
+}</pre>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ========================= FOOTER ========================= -->
+<footer>
+  <div class="wrap">
+    <p>NFL &middot; Normal Field Learning for 6-DoF Grasping of Transparent Objects</p>
+    <p>IEEE RA-L 2024 &middot; Project page</p>
+  </div>
+</footer>
+
+<script>
+/* ---------- scroll reveal ---------- */
+(function(){
+  const els = document.querySelectorAll('.rise');
+  if(!('IntersectionObserver' in window)){ els.forEach(e=>e.classList.add('in')); return; }
+  const io = new IntersectionObserver((entries)=>{
+    entries.forEach(e=>{ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }});
+  },{ threshold:.12 });
+  els.forEach(e=>io.observe(e));
+})();
+
+/* ---------- copy bibtex ---------- */
+(function(){
+  const btn = document.getElementById('copyBib');
+  const txt = document.getElementById('bibText');
+  if(!btn) return;
+  btn.addEventListener('click', async () => {
+    try{
+      await navigator.clipboard.writeText(txt.textContent);
+      const old = btn.textContent; btn.textContent = 'Copied';
+      setTimeout(()=>btn.textContent = old, 1400);
+    }catch(_){
+      const old = btn.textContent; btn.textContent = 'Select all &rarr;';
+      setTimeout(()=>btn.textContent = old, 1400);
+    }
+  });
+})();
+</script>
+</body>
+</html>

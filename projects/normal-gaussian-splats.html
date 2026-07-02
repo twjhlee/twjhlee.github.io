@@ -1,51 +1,315 @@
----
-layout: project
-title: "Real-time Normal Gaussian Splats"
-intro: "Gaussian version for NFL with instance.
-For real-time updates, gaussian is a better option.
-Track spatial change in real-time.
-We first extract SAM2 temporal masks and use a render-and-compare pipeline"
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Real-time Normal Gaussian Splats</title>
+<meta name="description" content="A Gaussian-splat version of NFL for real-time, instance-level normal field updates — SAM2 temporal masks feeding a render-and-compare tracking pipeline.">
 
-sections:
-  - title: "Gaussian splatting of NFL"
-    type: image
-    items:
-      - src: /images/rgb_real_time_normal.gif
-        caption: "RGB input"
-        width: "30%"
-      - src: /images/normal_real_time_normal.gif
-        caption: "Normal field"
-        width: "30%"
-      - src: /images/depth_real_time_normal.gif
-        caption: "Depth"
-        width: "30%"
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
-  - title: "Dynamic scene"
-    type: image
-    items:
-      - src: /images/real_time_normal_change.gif
-        caption: "Scene where objects move"
-        width: "48%"
-      - src: /images/sam2.gif
-        caption: "SAM2 masks"
-        width: "48%"
+<style>
+/* ============================================================
+   DESIGN TOKENS
+   Theme: "live splat" — magenta/cyan pulled from the RGB-encoded
+   normal maps themselves, on a clean white canvas.
+============================================================ */
+:root{
+  --bg:            #FFFFFF;
+  --bg-2:          #F7F5FA;
+  --surface:       #FBFAFC;
+  --hairline:      #E1DCE6;
+  --hairline-soft: #EEE9F1;
 
-  - title: "Tracking results"
-    type: image
-    items:
-      - src: /images/object1.gif
-        caption: "Object 1"
-        width: "48%"
-      - src: /images/object2.gif
-        caption: "Object 2"
-        width: "48%"
-      - src: /images/object3.gif
-        caption: "Object 3"
-        width: "48%"
-      - src: /images/object4.gif
-        caption: "Object 4"
-        width: "48%"
+  --ink:           #17141C;
+  --ink-dim:       #4C4756;
+  --ink-faint:     #9A93A3;
 
+  --splat:         #C026A3;  /* magenta — splat / normal accent */
+  --splat-deep:    #A21C87;
+  --track:         #0891B2;  /* cyan — tracking / mask accent */
 
+  --measure: 68ch;
+  --pad: clamp(1.25rem, 4vw, 4rem);
 
----
+  --f-display: "Space Grotesk", system-ui, sans-serif;
+  --f-body: "Inter", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+*{ box-sizing:border-box; }
+html{ scroll-behavior:smooth; }
+@media (prefers-reduced-motion: reduce){ html{ scroll-behavior:auto; } }
+
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--f-body);
+  font-size:17px;
+  line-height:1.7;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+
+.grid-atmos{
+  background-image:
+    linear-gradient(var(--hairline-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--hairline-soft) 1px, transparent 1px);
+  background-size: 46px 46px;
+}
+
+a{ color:var(--splat-deep); text-decoration:none; }
+a:hover{ text-decoration:underline; text-underline-offset:3px; }
+::selection{ background:var(--splat); color:#fff; }
+
+.mono{ font-family:var(--f-mono); }
+.eyebrow{
+  font-family:var(--f-mono);
+  font-size:.72rem;
+  letter-spacing:.22em;
+  text-transform:uppercase;
+  color:var(--ink-faint);
+}
+
+.wrap{ max-width:1180px; margin:0 auto; padding-inline:var(--pad); }
+.narrow{ max-width:760px; }
+section{ padding-block: clamp(3rem, 7vw, 6rem); }
+
+/* ============================================================
+   NAV
+============================================================ */
+nav.top{
+  position:sticky; top:0; z-index:50;
+  background:rgba(255,255,255,.92);
+  backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--hairline);
+}
+nav.top .wrap{
+  display:flex; align-items:center; justify-content:space-between;
+  padding-block:.85rem;
+}
+.brand{ display:flex; align-items:baseline; gap:.7rem; }
+.brand .name{ font-family:var(--f-display); font-weight:700; letter-spacing:.02em; font-size:1.05rem; }
+.brand .pid{ font-family:var(--f-mono); font-size:.7rem; color:var(--ink-faint); border:1px solid var(--hairline); border-radius:4px; padding:.15rem .45rem; }
+.nav-links{ display:flex; gap:1.6rem; font-family:var(--f-mono); font-size:.78rem; letter-spacing:.04em; }
+.nav-links a{ color:var(--ink-dim); text-transform:uppercase; }
+.nav-links a:hover{ color:var(--ink); text-decoration:none; }
+@media (max-width:760px){ .nav-links{ display:none; } }
+
+/* ============================================================
+   HERO
+============================================================ */
+.hero{ position:relative; overflow:hidden; border-bottom:1px solid var(--hairline); }
+.hero .grid-atmos{
+  position:absolute; inset:0;
+  -webkit-mask-image:radial-gradient(120% 90% at 50% 0%, #000 0%, transparent 70%);
+          mask-image:radial-gradient(120% 90% at 50% 0%, #000 0%, transparent 70%);
+  opacity:.5; pointer-events:none;
+}
+.hero .wrap{ position:relative; padding-block: clamp(3rem,7vw,5rem) clamp(2.5rem,6vw,3.5rem); }
+
+.venue{ display:flex; gap:1.4rem; flex-wrap:wrap; align-items:center; margin-bottom:2rem; }
+.venue .tag{
+  font-family:var(--f-mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--splat-deep); border:1px solid color-mix(in srgb, var(--splat) 40%, transparent);
+  border-radius:100px; padding:.3rem .8rem;
+}
+.venue .anon{ font-family:var(--f-mono); font-size:.75rem; color:var(--ink-faint); }
+
+h1.title{
+  font-family:var(--f-display);
+  font-weight:700;
+  font-size:clamp(2.1rem, 5.6vw, 3.8rem);
+  line-height:1.05;
+  letter-spacing:-.02em;
+  margin:0 0 1.2rem;
+  max-width:18ch;
+}
+.lede{
+  font-size:clamp(1.02rem,1.9vw,1.2rem);
+  color:var(--ink-dim);
+  max-width:60ch;
+  line-height:1.6;
+  margin:0;
+}
+.lede + .lede{ margin-top:.9rem; }
+
+/* ============================================================
+   SECTION HEADS
+============================================================ */
+.head{ margin-bottom:2rem; }
+.head .eyebrow{ display:block; margin-bottom:.8rem; }
+.head h2{
+  font-family:var(--f-display); font-weight:600;
+  font-size:clamp(1.5rem,3vw,2.05rem); line-height:1.15; letter-spacing:-.01em;
+  margin:0; max-width:26ch;
+}
+
+/* ============================================================
+   MEDIA GRID
+============================================================ */
+.media-grid{ display:flex; flex-wrap:wrap; gap:1.4rem; }
+.media-item{ box-sizing:border-box; }
+.media-item img.fig{
+  width:100%; height:auto; display:block; border-radius:12px;
+  border:1px solid var(--hairline); background:var(--surface);
+}
+.media-item .video-wrap{
+  position:relative; width:100%; border-radius:12px; overflow:hidden;
+  border:1px solid var(--hairline); background:var(--bg-2);
+}
+.media-item .video-wrap iframe{ position:absolute; inset:0; width:100%; height:100%; border:none; }
+.media-cap{
+  font-family:var(--f-mono); font-size:.78rem; color:var(--ink-faint);
+  line-height:1.5; margin-top:.7rem;
+}
+
+:focus-visible{ outline:2px solid var(--splat); outline-offset:3px; border-radius:4px; }
+
+/* ============================================================
+   SCROLL REVEAL
+============================================================ */
+.rise{ opacity:0; transform:translateY(18px); transition:opacity .7s ease, transform .7s ease; }
+.rise.in{ opacity:1; transform:none; }
+@media (prefers-reduced-motion: reduce){ .rise{ opacity:1; transform:none; transition:none; } }
+
+/* ============================================================
+   FOOTER
+============================================================ */
+footer{ border-top:1px solid var(--hairline); padding-block:2.5rem; }
+footer .wrap{ display:flex; justify-content:space-between; flex-wrap:wrap; gap:1rem; }
+footer p{ font-family:var(--f-mono); font-size:.76rem; color:var(--ink-faint); margin:0; }
+</style>
+</head>
+<body>
+
+<!-- ========================= NAV ========================= -->
+<nav class="top">
+  <div class="wrap">
+    <div class="brand">
+      <span class="name">Normal Gaussian Splats</span>
+      <span class="pid">Ongoing</span>
+    </div>
+    <div class="nav-links">
+      <a href="#splatting">Splatting</a>
+      <a href="#dynamic">Dynamic Scene</a>
+      <a href="#tracking">Tracking</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ========================= HERO ========================= -->
+<header class="hero">
+  <div class="grid-atmos"></div>
+  <div class="wrap">
+    <div class="venue">
+      <span class="tag">Ongoing project · Real-time Perception</span>
+      <span class="anon">Junho Lee</span>
+    </div>
+
+    <h1 class="title">Real-time Normal Gaussian Splats</h1>
+
+    <p class="lede">A Gaussian-splat version of <a href="NFL.html">NFL</a> built for instances that move. Gaussian splats update far faster than a voxel grid, which matters once the scene itself is changing in real time.</p>
+    <p class="lede">We first extract SAM2 temporal masks to track object identity across frames, then drive the splat update with a render-and-compare pipeline against the live RGB stream.</p>
+  </div>
+</header>
+
+<main>
+
+<!-- ========================= SPLATTING ========================= -->
+<section id="splatting">
+  <div class="wrap">
+    <div class="head rise">
+      <span class="eyebrow">Representation</span>
+      <h2>Gaussian splatting of NFL.</h2>
+    </div>
+    <div class="media-grid rise">
+      <div class="media-item" style="width:30%;">
+        <img class="fig" src="/images/rgb_real_time_normal.gif" alt="RGB input stream used to drive the real-time normal Gaussian splat">
+        <p class="media-cap">RGB input</p>
+      </div>
+      <div class="media-item" style="width:30%;">
+        <img class="fig" src="/images/normal_real_time_normal.gif" alt="Normal field reconstructed in real time as Gaussian splats">
+        <p class="media-cap">Normal field</p>
+      </div>
+      <div class="media-item" style="width:30%;">
+        <img class="fig" src="/images/depth_real_time_normal.gif" alt="Depth derived from the real-time normal Gaussian splat representation">
+        <p class="media-cap">Depth</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= DYNAMIC SCENE ========================= -->
+<section id="dynamic" style="background:var(--bg-2); border-block:1px solid var(--hairline);">
+  <div class="wrap">
+    <div class="head rise">
+      <span class="eyebrow">Scene change</span>
+      <h2>Dynamic scene.</h2>
+    </div>
+    <div class="media-grid rise">
+      <div class="media-item" style="width:48%;">
+        <img class="fig" src="/images/real_time_normal_change.gif" alt="A scene where objects move and the normal splat representation updates live">
+        <p class="media-cap">Scene where objects move</p>
+      </div>
+      <div class="media-item" style="width:48%;">
+        <img class="fig" src="/images/sam2.gif" alt="SAM2 temporal masks used to track object identity across frames">
+        <p class="media-cap">SAM2 masks</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= TRACKING RESULTS ========================= -->
+<section id="tracking">
+  <div class="wrap">
+    <div class="head rise">
+      <span class="eyebrow">Per-instance results</span>
+      <h2>Tracking results.</h2>
+    </div>
+    <div class="media-grid rise">
+      <div class="media-item" style="width:48%;">
+        <img class="fig" src="/images/object1.gif" alt="Tracked normal splat reconstruction for object 1 across the sequence">
+        <p class="media-cap">Object 1</p>
+      </div>
+      <div class="media-item" style="width:48%;">
+        <img class="fig" src="/images/object2.gif" alt="Tracked normal splat reconstruction for object 2 across the sequence">
+        <p class="media-cap">Object 2</p>
+      </div>
+      <div class="media-item" style="width:48%;">
+        <img class="fig" src="/images/object3.gif" alt="Tracked normal splat reconstruction for object 3 across the sequence">
+        <p class="media-cap">Object 3</p>
+      </div>
+      <div class="media-item" style="width:48%;">
+        <img class="fig" src="/images/object4.gif" alt="Tracked normal splat reconstruction for object 4 across the sequence">
+        <p class="media-cap">Object 4</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ========================= FOOTER ========================= -->
+<footer>
+  <div class="wrap">
+    <p>Real-time Normal Gaussian Splats &middot; ongoing project</p>
+    <p><a href="/">&larr; Back to home</a></p>
+  </div>
+</footer>
+
+<script>
+(function(){
+  const els = document.querySelectorAll('.rise');
+  if(!('IntersectionObserver' in window)){ els.forEach(e=>e.classList.add('in')); return; }
+  const io = new IntersectionObserver((entries)=>{
+    entries.forEach(e=>{ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }});
+  },{ threshold:.12 });
+  els.forEach(e=>io.observe(e));
+})();
+</script>
+</body>
+</html>
