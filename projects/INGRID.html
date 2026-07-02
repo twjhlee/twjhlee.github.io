@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>INGRID — Interactive Geometry and Instance Identification for Occluded Scenes</title>
+<meta name="description" content="INGRID: a robotic system that actively interacts with a scene to reveal hidden surfaces and disambiguate object instances and geometry.">
+
+<!-- ============================================================
+     FONTS
+     Space Grotesk = display (technical grotesque, used at scale)
+     Inter         = body
+     JetBrains Mono = labels, data, captions (the "instrument" voice)
+============================================================ -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+/* ============================================================
+   DESIGN TOKENS
+   A "3D viewport" theme: deep slate canvas, the paper's own
+   render colors as accents. Visibility-yellow is the signature —
+   in the paper it marks newly-revealed surface, so here it marks
+   everything the reader should notice.
+============================================================ */
+:root{
+  --bg:            #FFFFFF;
+  --bg-2:          #F5F7FA;
+  --surface:       #FAFBFC;
+  --hairline:      #D1D5DB;
+  --hairline-soft: #E5E7EB;
+
+  --ink:           #111827;
+  --ink-dim:       #4B5563;
+  --ink-faint:     #9CA3AF;
+
+  --geo:           #2563EB;
+  --geo-deep:      #1D4ED8;
+  --instance:      #C74B93;
+  --visible:       #B45309;   /* amber — readable on white      */
+  --recovered:     #EA580C;
+
+  --measure: 68ch;
+  --pad: clamp(1.25rem, 4vw, 4rem);
+
+  --f-display: "Space Grotesk", system-ui, sans-serif;
+  --f-body: "Inter", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+*{ box-sizing:border-box; }
+html{ scroll-behavior:smooth; }
+@media (prefers-reduced-motion: reduce){ html{ scroll-behavior:auto; } }
+
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--f-body);
+  font-size:17px;
+  line-height:1.7;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+
+/* subtle voxel grid, only in atmosphere layers */
+.grid-atmos{
+  background-image:
+    linear-gradient(var(--hairline-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--hairline-soft) 1px, transparent 1px);
+  background-size: 46px 46px;
+}
+
+a{ color:var(--visible); text-decoration:none; }
+a:hover{ text-decoration:underline; text-underline-offset:3px; }
+
+::selection{ background:var(--visible); color:#fff; }
+
+.mono{ font-family:var(--f-mono); }
+.eyebrow{
+  font-family:var(--f-mono);
+  font-size:.72rem;
+  letter-spacing:.22em;
+  text-transform:uppercase;
+  color:var(--ink-faint);
+}
+
+/* ---------- layout shell ---------- */
+.wrap{ max-width:1180px; margin:0 auto; padding-inline:var(--pad); }
+.narrow{ max-width:760px; }
+
+section{ padding-block: clamp(3.5rem, 8vw, 7rem); }
+
+/* ============================================================
+   NAV
+============================================================ */
+nav.top{
+  position:sticky; top:0; z-index:50;
+  background:rgba(255,255,255,.92);
+  backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--hairline);
+}
+nav.top .wrap{
+  display:flex; align-items:center; justify-content:space-between;
+  padding-block:.85rem;
+}
+.brand{ display:flex; align-items:baseline; gap:.7rem; }
+.brand .name{ font-family:var(--f-display); font-weight:700; letter-spacing:.02em; font-size:1.05rem; }
+.brand .pid{ font-family:var(--f-mono); font-size:.7rem; color:var(--ink-faint); border:1px solid var(--hairline); border-radius:4px; padding:.15rem .45rem; }
+.nav-links{ display:flex; gap:1.6rem; font-family:var(--f-mono); font-size:.78rem; letter-spacing:.04em; }
+.nav-links a{ color:var(--ink-dim); text-transform:uppercase; }
+.nav-links a:hover{ color:var(--ink); text-decoration:none; }
+@media (max-width:760px){ .nav-links{ display:none; } }
+
+/* ============================================================
+   HERO
+============================================================ */
+.hero{ position:relative; overflow:hidden; border-bottom:1px solid var(--hairline); }
+.hero .grid-atmos{
+  position:absolute; inset:0;
+  -webkit-mask-image:radial-gradient(120% 90% at 50% 0%, #000 0%, transparent 70%);
+          mask-image:radial-gradient(120% 90% at 50% 0%, #000 0%, transparent 70%);
+  opacity:.5; pointer-events:none;
+}
+.hero .wrap{ position:relative; padding-block: clamp(3rem,7vw,5.5rem) clamp(2.5rem,6vw,4rem); }
+
+.venue{ display:flex; gap:1.4rem; flex-wrap:wrap; align-items:center; margin-bottom:2rem; }
+.venue .tag{
+  font-family:var(--f-mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--visible); border:1px solid color-mix(in srgb, var(--visible) 40%, transparent);
+  border-radius:100px; padding:.3rem .8rem;
+}
+.venue .anon{ font-family:var(--f-mono); font-size:.75rem; color:var(--ink-faint); }
+
+h1.title{
+  font-family:var(--f-display);
+  font-weight:700;
+  font-size:clamp(2.3rem, 6.2vw, 4.6rem);
+  line-height:1.03;
+  letter-spacing:-.02em;
+  margin:0 0 1.2rem;
+  max-width:16ch;
+}
+h1.title .acr{ color:var(--visible); }
+.lede{
+  font-size:clamp(1.05rem,2vw,1.28rem);
+  color:var(--ink-dim);
+  max-width:58ch;
+  line-height:1.55;
+  margin:0 0 2.2rem;
+}
+
+.actions{ display:flex; flex-wrap:wrap; gap:.7rem; }
+.btn{
+  display:inline-flex; align-items:center; gap:.55rem;
+  font-family:var(--f-mono); font-size:.82rem; letter-spacing:.02em;
+  padding:.7rem 1.15rem; border-radius:8px;
+  border:1px solid var(--hairline);
+  background:var(--surface); color:var(--ink);
+  transition:border-color .2s, transform .2s, background .2s;
+}
+.btn:hover{ border-color:var(--geo); transform:translateY(-2px); text-decoration:none; }
+.btn.primary{ background:var(--visible); color:#fff; border-color:var(--visible); font-weight:600; }
+.btn.primary:hover{ background:#92400e; }
+.btn svg{ width:15px; height:15px; }
+
+/* teaser figure */
+.teaser{ margin-top:clamp(2.5rem,5vw,3.5rem); }
+
+/* ============================================================
+   IMAGE PLACEHOLDERS
+   Swap any .ph block for <img class="fig" src="..."> when ready.
+============================================================ */
+.figure{ margin:0; }
+.ph{
+  position:relative;
+  border:1px dashed var(--hairline);
+  border-radius:12px;
+  background:
+    repeating-linear-gradient(45deg, var(--bg-2) 0 14px, var(--surface) 14px 28px);
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:.5rem; text-align:center; padding:2rem;
+  color:var(--ink-faint);
+  min-height:180px;
+}
+.ph .ph-badge{
+  font-family:var(--f-mono); font-size:.72rem; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--visible);
+  border:1px solid color-mix(in srgb,var(--visible) 35%, transparent);
+  border-radius:100px; padding:.25rem .7rem;
+}
+.ph .ph-hint{ font-family:var(--f-mono); font-size:.8rem; max-width:52ch; line-height:1.5; }
+.ph.wide{ aspect-ratio:16/6; }
+.ph.tall{ aspect-ratio:4/3; }
+.ph.square{ aspect-ratio:1; }
+img.fig{ width:100%; height:auto; display:block; border-radius:12px; border:1px solid var(--hairline); }
+figcaption{
+  font-family:var(--f-mono); font-size:.78rem; color:var(--ink-faint);
+  line-height:1.55; margin-top:.9rem;
+}
+figcaption b{ color:var(--ink-dim); font-weight:500; }
+
+/* ============================================================
+   SECTION HEADS
+============================================================ */
+.head{ margin-bottom:2.5rem; }
+.head .eyebrow{ display:block; margin-bottom:.9rem; }
+.head h2{
+  font-family:var(--f-display); font-weight:600;
+  font-size:clamp(1.7rem,3.6vw,2.5rem); line-height:1.1; letter-spacing:-.015em;
+  margin:0; max-width:20ch;
+}
+.head p.sub{ color:var(--ink-dim); max-width:var(--measure); margin:1rem 0 0; }
+
+/* prose */
+.prose p{ max-width:var(--measure); }
+.prose p + p{ margin-top:1.1rem; }
+.prose strong{ color:var(--ink); font-weight:600; }
+
+/* abstract block */
+.abstract{
+  border-left:2px solid var(--visible);
+  padding-left:1.6rem;
+}
+.abstract .eyebrow{ margin-bottom:.8rem; }
+.abstract p{ font-size:1.08rem; color:var(--ink); max-width:var(--measure); }
+
+/* ============================================================
+   THE PROBLEM — two ambiguity cards
+============================================================ */
+.amb-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:1.5rem; margin-top:2.5rem; }
+@media (max-width:760px){ .amb-grid{ grid-template-columns:1fr; } }
+.amb{
+  background:var(--surface); border:1px solid var(--hairline); border-radius:14px;
+  padding:1.6rem; display:flex; flex-direction:column; gap:1rem;
+}
+.amb .kind{ font-family:var(--f-mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; color:var(--instance); }
+.amb h3{ font-family:var(--f-display); font-weight:600; font-size:1.15rem; margin:0; }
+.amb p{ color:var(--ink-dim); margin:0; font-size:.96rem; }
+
+/* ============================================================
+   PIPELINE — genuine 4-step sequence (i–iv), so numbering earns its place
+============================================================ */
+.pipeline{ display:grid; gap:1px; background:var(--hairline); border:1px solid var(--hairline); border-radius:14px; overflow:hidden; }
+.step{
+  background:var(--surface);
+  display:grid; grid-template-columns:auto 1fr; gap:1.4rem;
+  padding:1.7rem clamp(1.2rem,3vw,2.2rem);
+  transition:background .25s;
+}
+.step:hover{ background:var(--bg-2); }
+.step .num{
+  font-family:var(--f-display); font-weight:700; font-size:1.15rem;
+  color:var(--visible);
+  border:1px solid color-mix(in srgb,var(--visible) 30%, transparent);
+  border-radius:8px; width:2.7rem; height:2.7rem;
+  display:grid; place-items:center; align-self:start;
+}
+.step h3{ font-family:var(--f-display); font-weight:600; font-size:1.15rem; margin:0 0 .4rem; }
+.step p{ color:var(--ink-dim); margin:0; font-size:.98rem; max-width:64ch; }
+.step .k{ color:var(--geo); font-family:var(--f-mono); font-size:.9em; }
+
+/* ============================================================
+   BEFORE / AFTER REVEAL — the signature interaction.
+   Literally embodies the paper: drag to reveal the hidden surface.
+============================================================ */
+.reveal{ margin-top:2.5rem; }
+.reveal-stage{
+  position:relative; border-radius:14px; overflow:hidden;
+  border:1px solid var(--hairline);
+  aspect-ratio:16/8;
+  cursor:ew-resize; user-select:none;
+  background:var(--bg-2);
+}
+.reveal-layer{ position:absolute; inset:0; display:grid; place-items:center; }
+.reveal-layer .lbl{
+  position:absolute; top:1rem; font-family:var(--f-mono); font-size:.72rem; letter-spacing:.12em; text-transform:uppercase;
+  padding:.3rem .7rem; border-radius:100px; z-index:4;
+}
+/* base = "before change" */
+.layer-before{ background:
+    radial-gradient(60% 80% at 40% 60%, color-mix(in srgb,var(--instance) 22%, var(--bg-2)) 0%, var(--bg-2) 70%); }
+.layer-before .lbl{ left:1rem; color:var(--ink-dim); border:1px solid var(--hairline); background:rgba(14,17,22,.6); }
+/* top clip = "after change / revealed" */
+.layer-after{ background:
+    radial-gradient(60% 80% at 60% 60%, color-mix(in srgb,var(--geo) 26%, var(--bg-2)) 0%, var(--bg-2) 70%);
+  clip-path:inset(0 50% 0 0); }
+.layer-after .lbl{ right:1rem; color:var(--visible); border:1px solid color-mix(in srgb,var(--visible) 40%, transparent); background:rgba(14,17,22,.6); }
+.reveal-ph{ font-family:var(--f-mono); font-size:.82rem; color:var(--ink-faint); text-align:center; padding:1.5rem; line-height:1.6; }
+.reveal-ph b{ color:var(--ink-dim); }
+.reveal-handle{
+  position:absolute; top:0; bottom:0; left:50%; width:2px; background:var(--visible); z-index:6;
+  transform:translateX(-1px);
+}
+.reveal-handle::after{
+  content:""; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+  width:38px; height:38px; border-radius:50%;
+  background:var(--visible);
+  box-shadow:0 0 0 6px rgba(242,201,76,.18);
+}
+.reveal-handle .grip{
+  position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+  z-index:7; font-family:var(--f-mono); font-size:.9rem; color:#1a1500; font-weight:700;
+}
+.reveal input[type=range]{
+  position:absolute; inset:0; width:100%; height:100%; margin:0; opacity:0; cursor:ew-resize; z-index:8;
+}
+
+/* ============================================================
+   RESULTS TABLES
+============================================================ */
+.table-scroll{ overflow-x:auto; border:1px solid var(--hairline); border-radius:14px; }
+table{
+  border-collapse:collapse; width:100%; min-width:640px;
+  font-family:var(--f-mono); font-size:.82rem;
+}
+caption{
+  caption-side:top; text-align:left; padding:1.1rem 1.2rem .3rem;
+  font-family:var(--f-mono); font-size:.78rem; color:var(--ink-faint); line-height:1.55;
+}
+thead th{
+  text-align:right; padding:.7rem .9rem;
+  color:var(--ink-dim); font-weight:500; letter-spacing:.03em;
+  border-bottom:1px solid var(--hairline); white-space:nowrap;
+}
+thead th:first-child{ text-align:left; }
+tbody td{ padding:.6rem .9rem; text-align:right; border-bottom:1px solid var(--hairline-soft); color:var(--ink-dim); white-space:nowrap; }
+tbody td:first-child{ text-align:left; color:var(--ink); }
+tbody tr:last-child td{ border-bottom:none; }
+tbody tr.ours{ background:color-mix(in srgb,var(--visible) 7%, transparent); }
+tbody tr.ours td:first-child{ color:var(--visible); }
+.best{ color:var(--ink); font-weight:600; }
+.group-rule td{ border-top:1px solid var(--hairline); }
+.tbl-note{ font-family:var(--f-mono); font-size:.74rem; color:var(--ink-faint); margin-top:.8rem; }
+
+.two-col{ display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; align-items:start; }
+@media (max-width:860px){ .two-col{ grid-template-columns:1fr; } }
+
+/* ============================================================
+   CONTRIBUTIONS
+============================================================ */
+.contribs{ display:grid; grid-template-columns:repeat(3,1fr); gap:1.5rem; margin-top:2rem; }
+@media (max-width:860px){ .contribs{ grid-template-columns:1fr; } }
+.contrib{ border-top:2px solid var(--geo); padding-top:1.1rem; }
+.contrib .n{ font-family:var(--f-mono); font-size:.75rem; color:var(--ink-faint); letter-spacing:.1em; }
+.contrib p{ margin:.5rem 0 0; color:var(--ink-dim); font-size:.98rem; }
+
+/* ============================================================
+   LIMITATIONS
+============================================================ */
+.limits{ display:grid; gap:1rem; margin-top:1.5rem; }
+.limit{ display:grid; grid-template-columns:auto 1fr; gap:1rem; align-items:baseline; padding:1.1rem 0; border-bottom:1px solid var(--hairline-soft); }
+.limit .dot{ width:8px; height:8px; border-radius:50%; background:var(--recovered); margin-top:.5rem; }
+.limit p{ margin:0; color:var(--ink-dim); max-width:var(--measure); }
+.limit p b{ color:var(--ink); font-weight:600; }
+
+/* ============================================================
+   BIBTEX
+============================================================ */
+.bibtex{ position:relative; }
+.bibtex pre{
+  background:var(--bg-2); border:1px solid var(--hairline); border-radius:12px;
+  padding:1.4rem 1.5rem; overflow-x:auto;
+  font-family:var(--f-mono); font-size:.82rem; line-height:1.7; color:var(--ink-dim);
+  margin:0;
+}
+.copy-btn{
+  position:absolute; top:.9rem; right:.9rem;
+  font-family:var(--f-mono); font-size:.72rem; letter-spacing:.06em;
+  background:var(--surface); border:1px solid var(--hairline); color:var(--ink-dim);
+  border-radius:6px; padding:.35rem .7rem; cursor:pointer; transition:.2s;
+}
+.copy-btn:hover{ border-color:var(--visible); color:var(--visible); }
+
+/* ============================================================
+   FOOTER
+============================================================ */
+footer{ border-top:1px solid var(--hairline); padding-block:2.5rem; }
+footer .wrap{ display:flex; justify-content:space-between; flex-wrap:wrap; gap:1rem; }
+footer p{ font-family:var(--f-mono); font-size:.76rem; color:var(--ink-faint); margin:0; }
+
+/* ============================================================
+   SCROLL REVEAL
+============================================================ */
+.rise{ opacity:0; transform:translateY(18px); transition:opacity .7s ease, transform .7s ease; }
+.rise.in{ opacity:1; transform:none; }
+@media (prefers-reduced-motion: reduce){
+  .rise{ opacity:1; transform:none; transition:none; }
+}
+
+/* focus visibility */
+:focus-visible{ outline:2px solid var(--visible); outline-offset:3px; border-radius:4px; }
+</style>
+</head>
+<body>
+
+<!-- ========================= NAV ========================= -->
+<nav class="top">
+  <div class="wrap">
+    <div class="brand">
+      <span class="name">INGRID</span>
+      <span class="pid">Paper&nbsp;ID&nbsp;24</span>
+    </div>
+    <div class="nav-links">
+      <a href="#abstract">Abstract</a>
+      <a href="#problem">Problem</a>
+      <a href="#method">Method</a>
+      <a href="#results">Results</a>
+      <a href="#bibtex">BibTeX</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ========================= HERO ========================= -->
+<header class="hero">
+  <div class="grid-atmos"></div>
+  <div class="wrap">
+    <div class="venue">
+      <span class="tag">Interactive Perception · Robotics</span>
+      <span class="anon">// Junho Lee, Sangmin Kim, Yonghyeon Lee, Young Min Kim</span>
+    </div>
+
+    <h1 class="title"><span class="acr">INGRID</span>: Interactive Geometry and Instance Identification for Occluded Scenes</h1>
+
+    <p class="lede">A robotic manipulator that <em>acts</em> to see. INGRID physically nudges a cluttered scene to expose surfaces a static camera can never reach — then resolves what is one object and what is two.</p>
+
+    <div class="actions">
+      <!-- Replace href="#" with real links when available -->
+      <a class="btn primary" href="#">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3v5h5M8 13h8M8 17h8M8 9h2"/><path d="M6 2h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/></svg>
+        Paper (PDF)
+      </a>
+      <a class="btn" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 8h8v8H8z"/></svg> arXiv</a>
+      <a class="btn" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.3 4.3 0 0 0-.1-3.2s-1-.3-3.5 1.3a12 12 0 0 0-6.3 0C6.5 2.8 5.5 3.1 5.5 3.1a4.3 4.3 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg> Code</a>
+      <a class="btn" href="https://youtu.be/zDi0jirDK80" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m10 8 6 4-6 4V8z"/><rect x="2" y="4" width="20" height="16" rx="2"/></svg> Video</a>
+    </div>
+
+    <!-- ===== TEASER FIGURE (Fig. 1) ===== -->
+    <figure class="figure teaser rise">
+      <img class="fig" src="RSS_INGRID/imgs/fig1_teaser-1.png" alt="Overview of INGRID showing two panels: Unobservable Surface Discovery and Instance Disambiguation" style="padding:1.5rem; background:var(--surface);">
+      <figcaption><b>Fig. 1 — Overview.</b> INGRID discovers previously unobservable surfaces by executing robot-arm actions that maximize scene visibility, refines geometry through selective finetuning, and resolves instance-level ambiguities by interacting with the environment.</figcaption>
+    </figure>
+  </div>
+</header>
+
+<main>
+
+<!-- ========================= ABSTRACT ========================= -->
+<section id="abstract">
+  <div class="wrap narrow abstract rise">
+    <span class="eyebrow">Abstract</span>
+    <p>Identifying object instances and reconstructing their geometry are fundamental to manipulation, yet passive observation of a static scene is bounded by occlusion — which breeds both geometric and semantic ambiguity in cluttered, multi-object settings. INGRID lets a manipulator interact with the scene to reveal hidden surfaces and separate ambiguous instances. The first challenge is deciding <em>where</em> to interact to induce the most informative change; the second is efficiently updating instances and geometry once new views arrive. INGRID answers both with a four-step pipeline, and proves robust in severely occluded scenes both in simulation and the real world.</p>
+  </div>
+</section>
+
+<!-- ========================= THE PROBLEM ========================= -->
+<section id="problem" style="background:var(--bg-2); border-block:1px solid var(--hairline);">
+  <div class="wrap">
+    <div class="head rise">
+      <span class="eyebrow">Why static vision isn't enough</span>
+      <h2>Occlusion creates two kinds of ambiguity a camera alone can't resolve.</h2>
+      <p class="sub">When surfaces are hidden, the scene supports more than one explanation. INGRID's answer is to change the scene, not just look harder at it.</p>
+    </div>
+
+    <div class="amb-grid">
+      <div class="amb rise">
+        <span class="kind">Geometric ambiguity</span>
+        <h3>Hollow, or solid?</h3>
+        <p>Two cups stacked vertically: the lower cup is occluded. From images alone there is no way to tell whether its interior is hollow or filled in.</p>
+      </div>
+      <div class="amb rise">
+        <span class="kind">Instance ambiguity</span>
+        <h3>One block, or two?</h3>
+        <p>A block that is actually two separable pieces shares near-identical semantic features across the seam — so passive segmentation cannot decide whether it is one instance or two.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= METHOD ========================= -->
+<section id="method">
+  <div class="wrap">
+    <div class="head rise">
+      <span class="eyebrow">The pipeline</span>
+      <h2>Four steps, from a hierarchy of guesses to instance-wise geometry.</h2>
+      <p class="sub">Building on normal, density, and three-level feature fields, INGRID decides where to push, executes the action, then re-identifies and refines only what changed.</p>
+    </div>
+
+    <!-- This is a genuine ordered process, so roman numbering carries real information -->
+    <div class="pipeline rise">
+      <div class="step">
+        <div class="num">i</div>
+        <div>
+          <h3>Instance candidate tree</h3>
+          <p>Cluster the coarse/mid/fine affinity fields with <span class="k">HDBSCAN</span>, then build a tree where each node is a candidate point cloud and every child is a subset of its parent. The action space lives on the leaf nodes.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">ii</div>
+        <div>
+          <h3>Optimize an informative action</h3>
+          <p>A 3D <span class="k">visibility field U</span> records how well each voxel was seen during training. Over every leaf node × 12 directions × 20 magnitudes (1–40&nbsp;cm), pick the push that maximizes newly-revealed surface area: <span class="k">arg max Q(a)</span>.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">iii</div>
+        <div>
+          <h3>Identify instances under rigid-body assumption</h3>
+          <p>After the push, jointly solve for the set of instances and their <span class="k">SE(3)</span> transforms against sparse new views, minimizing 2D Chamfer distance. Start coarse; split nodes and re-solve until alignment error drops below threshold.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">iv</div>
+        <div>
+          <h3>Selective geometric finetuning</h3>
+          <p>Cut-and-paste high-visibility regions to a strong starting point, then finetune <em>only</em> the instances that still hold low-visibility surface — efficient, and more robust in the few-shot regime than finetuning from scratch.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== METHOD FIGURES ===== -->
+    <div class="two-col" style="margin-top:2.5rem;">
+      <figure class="figure rise">
+        <img class="fig" src="RSS_INGRID/imgs/fig4_interaction-1.png" alt="Interaction process showing visibility U, action space A, and updated visibility with gain highlighted in yellow">
+        <figcaption><b>Fig. 4 — Where to interact.</b> For each candidate action, INGRID predicts the updated visibility and scores it by the visibility gain (shown in yellow).</figcaption>
+      </figure>
+      <figure class="figure rise">
+        <img class="fig" src="RSS_INGRID/imgs/fig5_finetuning-1.png" alt="Selective finetuning process: scene change, rendered visibility of newly-visible surface, and instance-wise geometry update">
+        <figcaption><b>Fig. 5 — Refine only what's new.</b> Newly-visible surface (yellow) marks the instances worth finetuning; well-observed geometry is preserved.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+
+<!-- ========================= RESULTS ========================= -->
+<section id="results">
+  <div class="wrap">
+    <div class="head rise">
+      <span class="eyebrow">Experiments · simulation + real world</span>
+      <h2>Accurate geometry and cleaner instances, in seconds rather than minutes.</h2>
+      <p class="sub">Evaluated on a photo-realistic Blender dataset for ground truth and on a Franka Panda real-world setup. Lower VSD is better; higher IoU and precision/recall are better.</p>
+    </div>
+
+    <!-- ===== QUALITATIVE FIGURE (Fig. 6) ===== -->
+    <figure class="figure rise" style="margin-bottom:2.5rem;">
+      <img class="fig" src="RSS_INGRID/imgs/fig6_qual-1.png" alt="Qualitative results across scenes: before change, instance candidate tree, after change, visibility, and instance-wise geometry">
+      <figcaption><b>Fig. 6 — Across scenes.</b> INGRID builds the candidate tree, exploits scene change, and recovers instance-wise geometry; recovered instances are shaded orange in the tree.</figcaption>
+    </figure>
+
+    <!-- ===== TABLE I ===== -->
+    <div class="table-scroll rise">
+      <table>
+        <caption><b>Table I — Geometric update.</b> Visual Surface Discrepancy (VSD ↓) and IoU (↑) over 33 novel viewpoints, averaged across three viewpoint sets per image count. Bold = best. Runtime is the average.</caption>
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th>VSD · 2</th><th>VSD · 4</th><th>VSD · 8</th><th>VSD · 16</th>
+            <th>IoU · 2</th><th>IoU · 4</th><th>IoU · 8</th><th>IoU · 16</th>
+            <th>Runtime</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="ours">
+            <td>INGRID (Update + Finetune + Visibility)</td>
+            <td class="best">0.0385</td><td class="best">0.0330</td><td class="best">0.0307</td><td class="best">0.0302</td>
+            <td>0.8672</td><td class="best">0.8973</td><td>0.9132</td><td>0.9142</td>
+            <td>17&nbsp;sec</td>
+          </tr>
+          <tr class="ours">
+            <td>INGRID (Update + Finetune)</td>
+            <td>0.0465</td><td>0.0413</td><td>0.0387</td><td>0.0383</td>
+            <td>0.8673</td><td>0.8967</td><td>0.9131</td><td>0.9134</td>
+            <td>17&nbsp;sec</td>
+          </tr>
+          <tr class="ours">
+            <td>INGRID (Update)</td>
+            <td>0.0433</td><td>0.0416</td><td>0.0407</td><td>0.0406</td>
+            <td class="best">0.8771</td><td>0.8875</td><td>0.8937</td><td>0.8921</td>
+            <td>3&nbsp;sec</td>
+          </tr>
+          <tr class="ours">
+            <td>INGRID (Scratch)</td>
+            <td>0.1842</td><td>0.0427</td><td>0.0343</td><td>0.0333</td>
+            <td>0.5155</td><td>0.8894</td><td class="best">0.9550</td><td class="best">0.9578</td>
+            <td>62&nbsp;sec</td>
+          </tr>
+          <tr class="group-rule"><td>Dex-NeRF (Update)</td><td>3.0190</td><td>2.6412</td><td>0.0934</td><td>0.0506</td><td>0.0769</td><td>0.8053</td><td>0.9353</td><td>0.9461</td><td>25&nbsp;min</td></tr>
+          <tr><td>Dex-NeRF (Scratch)</td><td>2.7979</td><td>2.6319</td><td>0.0992</td><td>0.0535</td><td>0.0695</td><td>0.4382</td><td>0.9351</td><td>0.9453</td><td>50&nbsp;min</td></tr>
+          <tr><td>NeRF (Update)</td><td>0.8672</td><td>1.0712</td><td>0.1003</td><td>0.0687</td><td>0.0769</td><td>0.8053</td><td>0.9353</td><td>0.9461</td><td>25&nbsp;min</td></tr>
+          <tr><td>NeRF (Scratch)</td><td>1.7426</td><td>0.9968</td><td>0.0881</td><td>0.0716</td><td>0.0695</td><td>0.4382</td><td>0.9351</td><td>0.9453</td><td>50&nbsp;min</td></tr>
+          <tr><td>Instant-NGP (Update)</td><td>0.7123</td><td>1.1015</td><td>0.3884</td><td>0.0981</td><td>0.5807</td><td>0.7565</td><td>0.8472</td><td>0.8617</td><td>25&nbsp;sec</td></tr>
+          <tr><td>Instant-NGP (Scratch)</td><td>0.3973</td><td>0.4515</td><td>0.3791</td><td>0.0900</td><td>0.1617</td><td>0.4455</td><td>0.7821</td><td>0.8665</td><td>50&nbsp;sec</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="tbl-note">With only 2 images, INGRID transforms objects in 3D and finetunes newly-visible parts in 17 seconds — where field-based baselines take minutes.</p>
+
+    <!-- ===== TABLE II + UncOS ===== -->
+    <div class="two-col" style="margin-top:2.5rem;">
+      <div class="table-scroll rise">
+        <table>
+          <caption><b>Table II — Instance identification.</b> Precision (mean IoU over predicted instances) and recall (mean IoU over ground-truth instances) of 3D bounding boxes. Bold = best.</caption>
+          <thead><tr><th>Model</th><th>Precision ↑</th><th>Recall ↑</th></tr></thead>
+          <tbody>
+            <tr class="ours"><td>INGRID</td><td class="best">0.7449</td><td class="best">0.7002</td></tr>
+            <tr><td>INGRID (coarse)</td><td>0.5707</td><td>0.6403</td></tr>
+            <tr><td>INGRID (mid)</td><td>0.6393</td><td>0.6816</td></tr>
+            <tr><td>INGRID (fine)</td><td>0.6226</td><td>0.5500</td></tr>
+            <tr class="group-rule"><td>Garfield (0.00)</td><td>0.5652</td><td>0.4218</td></tr>
+            <tr><td>Garfield (0.05)</td><td>0.5268</td><td>0.4026</td></tr>
+            <tr><td>Garfield (0.10)</td><td>0.4562</td><td>0.4361</td></tr>
+            <tr><td>Garfield (0.15)</td><td>0.3055</td><td>0.3107</td></tr>
+            <tr><td>OmniSeg3D</td><td>0.5033</td><td>0.5567</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <figure class="figure rise">
+        <img class="fig" src="RSS_INGRID/imgs/fig7_uncos-1.png" alt="Mask recall comparison between INGRID and UncOS, showing INGRID's more consistent multi-view detection">
+        <figcaption><b>Fig. 7 — Multi-view beats single-view.</b> Against UncOS (single-view RGB-D), INGRID's multi-view aggregation gives more consistent detection in occlusion-heavy scenes, where UncOS swings sharply with viewpoint.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= CONTRIBUTIONS ========================= -->
+<section id="contributions" style="background:var(--bg-2); border-block:1px solid var(--hairline);">
+  <div class="wrap">
+    <div class="head rise">
+      <span class="eyebrow">Contributions</span>
+      <h2>What INGRID adds.</h2>
+    </div>
+    <div class="contribs">
+      <div class="contrib rise">
+        <div class="n">01</div>
+        <p>An interaction algorithm that autonomously induces change to expose occluded objects.</p>
+      </div>
+      <div class="contrib rise">
+        <div class="n">02</div>
+        <p>An efficient instance-wise geometric finetuning scheme driven by a visibility metric.</p>
+      </div>
+      <div class="contrib rise">
+        <div class="n">03</div>
+        <p>An optimization that jointly recovers instances and their transforms from a few images after change.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= LIMITATIONS ========================= -->
+<section id="limitations">
+  <div class="wrap narrow">
+    <div class="head rise">
+      <span class="eyebrow">Conclusion &amp; limitations</span>
+      <h2>Honest edges.</h2>
+      <p class="sub">INGRID reliably reconstructs instances and geometry in occlusion-prone scenes — with room to grow.</p>
+    </div>
+    <div class="limits">
+      <div class="limit rise"><span class="dot"></span><p><b>Fixed candidate tree.</b> True instances must appear in the initially built tree; dynamic node splitting or merging could add flexibility.</p></div>
+      <div class="limit rise"><span class="dot"></span><p><b>Needs viewpoint coverage.</b> Fully unobservable regions — e.g. items on a shelf — remain hard; shape priors like symmetry or superquadrics could help.</p></div>
+      <div class="limit rise"><span class="dot"></span><p><b>Rigid-body assumption.</b> Deformable objects like cloth or dolls fall outside scope; a piecewise-rigid model is a promising extension.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= BIBTEX ========================= -->
+<section id="bibtex" style="background:var(--bg-2); border-block:1px solid var(--hairline);">
+  <div class="wrap narrow">
+    <div class="head rise">
+      <span class="eyebrow">Cite</span>
+      <h2>BibTeX</h2>
+      <p class="sub">Placeholder entry — replace with the final venue and author list once de-anonymized.</p>
+    </div>
+    <div class="bibtex rise">
+      <button class="copy-btn" id="copyBib">Copy</button>
+      <pre id="bibText">@inproceedings{ingrid_anon,
+  title     = {INGRID: Interactive Geometry and Instance
+               Identification for Occluded Scenes},
+  author    = {Anonymous},
+  booktitle = {Under Review},
+  note      = {Paper ID 24},
+  year      = {2025}
+}</pre>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ========================= FOOTER ========================= -->
+<footer>
+  <div class="wrap">
+    <p>INGRID · Interactive Geometry and Instance Identification</p>
+    <p>Paper ID 24 · Anonymous review · Project page</p>
+  </div>
+</footer>
+
+<script>
+/* ---------- scroll reveal ---------- */
+(function(){
+  const els = document.querySelectorAll('.rise');
+  if(!('IntersectionObserver' in window)){ els.forEach(e=>e.classList.add('in')); return; }
+  const io = new IntersectionObserver((entries)=>{
+    entries.forEach(e=>{ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }});
+  },{ threshold:.12 });
+  els.forEach(e=>io.observe(e));
+})();
+
+/* ---------- before/after reveal ---------- */
+(function(){
+  const range  = document.getElementById('revealRange');
+  const after  = document.getElementById('revealAfter');
+  const handle = document.getElementById('revealHandle');
+  if(!range) return;
+  function set(v){
+    after.style.clipPath = `inset(0 ${100-v}% 0 0)`;
+    handle.style.left = v + '%';
+  }
+  range.addEventListener('input', e => set(+e.target.value));
+  set(50);
+})();
+
+/* ---------- copy bibtex ---------- */
+(function(){
+  const btn = document.getElementById('copyBib');
+  const txt = document.getElementById('bibText');
+  if(!btn) return;
+  btn.addEventListener('click', async () => {
+    try{
+      await navigator.clipboard.writeText(txt.textContent);
+      const old = btn.textContent; btn.textContent = 'Copied';
+      setTimeout(()=>btn.textContent = old, 1400);
+    }catch(_){
+      const old = btn.textContent; btn.textContent = 'Select all →';
+      setTimeout(()=>btn.textContent = old, 1400);
+    }
+  });
+})();
+</script>
+</body>
+</html>
