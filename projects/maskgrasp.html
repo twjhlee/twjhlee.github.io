@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MasKGrasp — Mask-based Grasping for Scenes with Multiple General Real-world Objects</title>
+<meta name="description" content="MasKGrasp: instance masks as a material-agnostic intermediate representation for robotic grasping, trained on a transparent-object-augmented MS-COCO, robust to clutter and unseen real-world objects.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+/* ============================================================
+   DESIGN TOKENS
+   Theme: "instance mask" — an emerald accent for the mask/grasp
+   pipeline, indigo reserved for the grasp-quality heatmaps.
+============================================================ */
+:root{
+  --bg:            #FFFFFF;
+  --bg-2:          #F4F9F6;
+  --surface:       #FAFCFB;
+  --hairline:      #DCE7DF;
+  --hairline-soft: #EAF1EC;
+
+  --ink:           #101713;
+  --ink-dim:       #47534C;
+  --ink-faint:     #93A199;
+
+  --mask:          #059669;  /* emerald — instance mask accent */
+  --mask-deep:     #047857;
+  --qmap:          #4338CA;  /* indigo — grasp quality accent */
+  --fail:          #DC5B5B;
+
+  --measure: 68ch;
+  --pad: clamp(1.25rem, 4vw, 4rem);
+
+  --f-display: "Space Grotesk", system-ui, sans-serif;
+  --f-body: "Inter", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+*{ box-sizing:border-box; }
+html{ scroll-behavior:smooth; }
+@media (prefers-reduced-motion: reduce){ html{ scroll-behavior:auto; } }
+
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--f-body);
+  font-size:17px;
+  line-height:1.7;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+
+.grid-atmos{
+  background-image:
+    linear-gradient(var(--hairline-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--hairline-soft) 1px, transparent 1px);
+  background-size: 46px 46px;
+}
+
+a{ color:var(--mask-deep); text-decoration:none; }
+a:hover{ text-decoration:underline; text-underline-offset:3px; }
+::selection{ background:var(--mask); color:#fff; }
+
+.mono{ font-family:var(--f-mono); }
+.eyebrow{
+  font-family:var(--f-mono);
+  font-size:.72rem;
+  letter-spacing:.22em;
+  text-transform:uppercase;
+  color:var(--ink-faint);
+}
+
+.wrap{ max-width:1180px; margin:0 auto; padding-inline:var(--pad); }
+.narrow{ max-width:760px; }
+section{ padding-block: clamp(3.5rem, 8vw, 7rem); }
+
+/* ============================================================
+   NAV
+============================================================ */
+nav.top{
+  position:sticky; top:0; z-index:50;
+  background:rgba(255,255,255,.92);
+  backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--hairline);
+}
+nav.top .wrap{
+  display:flex; align-items:center; justify-content:space-between;
+  padding-block:.85rem;
+}
+.brand{ display:flex; align-items:baseline; gap:.7rem; }
+.brand .name{ font-family:var(--f-display); font-weight:700; letter-spacing:.02em; font-size:1.05rem; }
+.brand .pid{ font-family:var(--f-mono); font-size:.7rem; color:var(--ink-faint); border:1px solid var(--hairline); border-radius:4px; padding:.15rem .45rem; }
+.nav-links{ display:flex; gap:1.6rem; font-family:var(--f-mono); font-size:.78rem; letter-spacing:.04em; }
+.nav-links a{ color:var(--ink-dim); text-transform:uppercase; }
+.nav-links a:hover{ color:var(--ink); text-decoration:none; }
+@media (max-width:800px){ .nav-links{ display:none; } }
+
+/* ============================================================
+   HERO
+============================================================ */
+.hero{ position:relative; overflow:hidden; border-bottom:1px solid var(--hairline); }
+.hero .grid-atmos{
+  position:absolute; inset:0;
+  -webkit-mask-image:radial-gradient(120% 90% at 50% 0%, #000 0%, transparent 70%);
+          mask-image:radial-gradient(120% 90% at 50% 0%, #000 0%, transparent 70%);
+  opacity:.5; pointer-events:none;
+}
+.hero .wrap{ position:relative; padding-block: clamp(3rem,7vw,5.5rem) clamp(2.5rem,6vw,4rem); }
+
+.venue{ display:flex; gap:1.4rem; flex-wrap:wrap; align-items:center; margin-bottom:2rem; }
+.venue .tag{
+  font-family:var(--f-mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--mask-deep); border:1px solid color-mix(in srgb, var(--mask) 40%, transparent);
+  border-radius:100px; padding:.3rem .8rem;
+}
+.venue .anon{ font-family:var(--f-mono); font-size:.75rem; color:var(--ink-faint); }
+
+h1.title{
+  font-family:var(--f-display);
+  font-weight:700;
+  font-size:clamp(2.1rem, 5.6vw, 4rem);
+  line-height:1.05;
+  letter-spacing:-.02em;
+  margin:0 0 1.2rem;
+  max-width:19ch;
+}
+h1.title .acr{ color:var(--mask-deep); }
+.lede{
+  font-size:clamp(1.05rem,2vw,1.28rem);
+  color:var(--ink-dim);
+  max-width:58ch;
+  line-height:1.55;
+  margin:0 0 2.2rem;
+}
+
+.actions{ display:flex; flex-wrap:wrap; gap:.7rem; }
+.btn{
+  display:inline-flex; align-items:center; gap:.55rem;
+  font-family:var(--f-mono); font-size:.82rem; letter-spacing:.02em;
+  padding:.7rem 1.15rem; border-radius:8px;
+  border:1px solid var(--hairline);
+  background:var(--surface); color:var(--ink);
+  transition:border-color .2s, transform .2s, background .2s;
+}
+.btn:hover{ border-color:var(--mask); transform:translateY(-2px); text-decoration:none; }
+.btn.primary{ background:var(--mask); color:#fff; border-color:var(--mask); font-weight:600; }
+.btn.primary:hover{ background:var(--mask-deep); }
+.btn svg{ width:15px; height:15px; }
+
+.teaser{ margin-top:clamp(2.5rem,5vw,3.5rem); }
+
+/* ============================================================
+   TEASER GRID (robot photo + 2x2 pipeline panels)
+============================================================ */
+.teaser-grid{
+  display:grid; grid-template-columns:1.05fr 1fr; gap:.7rem;
+  border:1px solid var(--hairline); border-radius:12px; padding:.7rem; background:var(--surface);
+}
+@media (max-width:640px){ .teaser-grid{ grid-template-columns:1fr; } }
+.teaser-grid .robot img{ width:100%; height:100%; object-fit:cover; border-radius:8px; display:block; }
+.teaser-grid .panels{ display:grid; grid-template-columns:1fr 1fr; gap:.6rem; }
+.teaser-grid .panels figure{ margin:0; }
+.teaser-grid .panels img{ width:100%; height:auto; display:block; border-radius:8px; border:1px solid var(--hairline-soft); }
+.teaser-grid .panels figcaption{
+  text-align:center; font-family:var(--f-mono); font-size:.68rem; color:var(--ink-faint);
+  margin-top:.35rem; text-transform:uppercase; letter-spacing:.06em;
+}
+
+/* ============================================================
+   FIGURES
+============================================================ */
+.figure{ margin:0; }
+img.fig{ width:100%; height:auto; display:block; border-radius:12px; border:1px solid var(--hairline); background:var(--surface); }
+figcaption{
+  font-family:var(--f-mono); font-size:.78rem; color:var(--ink-faint);
+  line-height:1.55; margin-top:.9rem;
+}
+figcaption b{ color:var(--ink-dim); font-weight:500; }
+
+/* ============================================================
+   SECTION HEADS
+============================================================ */
+.head{ margin-bottom:2.5rem; }
+.head .eyebrow{ display:block; margin-bottom:.9rem; }
+.head h2{
+  font-family:var(--f-display); font-weight:600;
+  font-size:clamp(1.7rem,3.6vw,2.5rem); line-height:1.1; letter-spacing:-.015em;
+  margin:0; max-width:24ch;
+}
+.head p.sub{ color:var(--ink-dim); max-width:var(--measure); margin:1rem 0 0; }
+
+.prose p{ max-width:var(--measure); }
+.prose p + p{ margin-top:1.1rem; }
+
+.abstract{ border-left:2px solid var(--mask); padding-left:1.6rem; }
+.abstract .eyebrow{ margin-bottom:.8rem; }
+.abstract p{ font-size:1.08rem; color:var(--ink); max-width:var(--measure); }
+
+/* ============================================================
+   WHY DEPTH FAILS — two comparison cards
+============================================================ */
+.amb-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:1.5rem; margin-top:2.5rem; }
+@media (max-width:760px){ .amb-grid{ grid-template-columns:1fr; } }
+.amb{
+  background:var(--surface); border:1px solid var(--hairline); border-radius:14px;
+  padding:1.6rem; display:flex; flex-direction:column; gap:1rem;
+}
+.amb .kind{ font-family:var(--f-mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; }
+.amb.bad .kind{ color:var(--fail); }
+.amb.good .kind{ color:var(--mask-deep); }
+.amb h3{ font-family:var(--f-display); font-weight:600; font-size:1.15rem; margin:0; }
+.amb p{ color:var(--ink-dim); margin:0; font-size:.96rem; }
+
+/* ============================================================
+   PIPELINE
+============================================================ */
+.pipeline{ display:grid; gap:1px; background:var(--hairline); border:1px solid var(--hairline); border-radius:14px; overflow:hidden; }
+.step{
+  background:var(--surface);
+  display:grid; grid-template-columns:auto 1fr; gap:1.4rem;
+  padding:1.7rem clamp(1.2rem,3vw,2.2rem);
+  transition:background .25s;
+}
+.step:hover{ background:var(--bg-2); }
+.step .num{
+  font-family:var(--f-display); font-weight:700; font-size:1.15rem;
+  color:var(--mask-deep);
+  border:1px solid color-mix(in srgb,var(--mask) 30%, transparent);
+  border-radius:8px; width:2.7rem; height:2.7rem;
+  display:grid; place-items:center; align-self:start;
+}
+.step h3{ font-family:var(--f-display); font-weight:600; font-size:1.15rem; margin:0 0 .4rem; }
+.step p{ color:var(--ink-dim); margin:0; font-size:.98rem; max-width:64ch; }
+.step .k{ color:var(--qmap); font-family:var(--f-mono); font-size:.9em; }
+
+/* ============================================================
+   RESULTS TABLES
+============================================================ */
+.table-scroll{ overflow-x:auto; border:1px solid var(--hairline); border-radius:14px; }
+table{
+  border-collapse:collapse; width:100%; min-width:480px;
+  font-family:var(--f-mono); font-size:.82rem;
+}
+caption{
+  caption-side:top; text-align:left; padding:1.1rem 1.2rem .3rem;
+  font-family:var(--f-mono); font-size:.78rem; color:var(--ink-faint); line-height:1.55;
+}
+thead th{
+  text-align:right; padding:.7rem .9rem;
+  color:var(--ink-dim); font-weight:500; letter-spacing:.03em;
+  border-bottom:1px solid var(--hairline); white-space:nowrap;
+}
+thead th:first-child{ text-align:left; }
+tbody td{ padding:.6rem .9rem; text-align:right; border-bottom:1px solid var(--hairline-soft); color:var(--ink-dim); white-space:nowrap; }
+tbody td:first-child{ text-align:left; color:var(--ink); }
+tbody tr:last-child td{ border-bottom:none; }
+tbody tr.ours{ background:color-mix(in srgb,var(--mask) 7%, transparent); }
+tbody tr.ours td:first-child{ color:var(--mask-deep); }
+.best{ color:var(--ink); font-weight:600; }
+.tbl-note{ font-family:var(--f-mono); font-size:.74rem; color:var(--ink-faint); margin-top:.8rem; }
+
+.two-col{ display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; align-items:start; }
+@media (max-width:860px){ .two-col{ grid-template-columns:1fr; } }
+
+/* ============================================================
+   CONTRIBUTIONS
+============================================================ */
+.contribs{ display:grid; grid-template-columns:repeat(2,1fr); gap:1.5rem; margin-top:2rem; }
+@media (max-width:860px){ .contribs{ grid-template-columns:1fr; } }
+.contrib{ border-top:2px solid var(--qmap); padding-top:1.1rem; }
+.contrib .n{ font-family:var(--f-mono); font-size:.75rem; color:var(--ink-faint); letter-spacing:.1em; }
+.contrib p{ margin:.5rem 0 0; color:var(--ink-dim); font-size:.98rem; }
+
+/* ============================================================
+   LIMITATIONS
+============================================================ */
+.limits{ display:grid; gap:1rem; margin-top:1.5rem; }
+.limit{ display:grid; grid-template-columns:auto 1fr; gap:1rem; align-items:baseline; padding:1.1rem 0; border-bottom:1px solid var(--hairline-soft); }
+.limit .dot{ width:8px; height:8px; border-radius:50%; background:var(--fail); margin-top:.5rem; }
+.limit p{ margin:0; color:var(--ink-dim); max-width:var(--measure); }
+.limit p b{ color:var(--ink); font-weight:600; }
+
+/* ============================================================
+   BIBTEX
+============================================================ */
+.bibtex{ position:relative; }
+.bibtex pre{
+  background:var(--bg-2); border:1px solid var(--hairline); border-radius:12px;
+  padding:1.4rem 1.5rem; overflow-x:auto;
+  font-family:var(--f-mono); font-size:.82rem; line-height:1.7; color:var(--ink-dim);
+  margin:0;
+}
+.copy-btn{
+  position:absolute; top:.9rem; right:.9rem;
+  font-family:var(--f-mono); font-size:.72rem; letter-spacing:.06em;
+  background:var(--surface); border:1px solid var(--hairline); color:var(--ink-dim);
+  border-radius:6px; padding:.35rem .7rem; cursor:pointer; transition:.2s;
+}
+.copy-btn:hover{ border-color:var(--mask); color:var(--mask-deep); }
+
+/* ============================================================
+   FOOTER
+============================================================ */
+footer{ border-top:1px solid var(--hairline); padding-block:2.5rem; }
+footer .wrap{ display:flex; justify-content:space-between; flex-wrap:wrap; gap:1rem; }
+footer p{ font-family:var(--f-mono); font-size:.76rem; color:var(--ink-faint); margin:0; }
+
+/* ============================================================
+   SCROLL REVEAL
+============================================================ */
+.rise{ opacity:0; transform:translateY(18px); transition:opacity .7s ease, transform .7s ease; }
+.rise.in{ opacity:1; transform:none; }
+@media (prefers-reduced-motion: reduce){ .rise{ opacity:1; transform:none; transition:none; } }
+
+/* ============================================================
+   VIDEO EMBED
+============================================================ */
+.video-wrap{
+  position:relative; width:100%; padding-top:56.25%;
+  border-radius:14px; overflow:hidden;
+  border:1px solid var(--hairline);
+  background:var(--bg-2);
+}
+.video-wrap iframe{ position:absolute; inset:0; width:100%; height:100%; border:none; }
+
+:focus-visible{ outline:2px solid var(--mask); outline-offset:3px; border-radius:4px; }
+</style>
+</head>
+<body>
+
+<!-- ========================= NAV ========================= -->
+<nav class="top">
+  <div class="wrap">
+    <div class="brand">
+      <span class="name">MasKGrasp</span>
+      <span class="pid">IROS&nbsp;2022</span>
+    </div>
+    <div class="nav-links">
+      <a href="#abstract">Abstract</a>
+      <a href="#video">Video</a>
+      <a href="#problem">Problem</a>
+      <a href="#method">Method</a>
+      <a href="#results">Results</a>
+      <a href="#bibtex">BibTeX</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ========================= HERO ========================= -->
+<header class="hero">
+  <div class="grid-atmos"></div>
+  <div class="wrap">
+    <div class="venue">
+      <span class="tag">IEEE/RSJ IROS, 2022</span>
+      <span class="anon">Junho Lee, Junhwa Hur, Inwoo Hwang, Young Min Kim</span>
+    </div>
+
+    <h1 class="title"><span class="acr">MasKGrasp</span>: Mask-based Grasping for Scenes with Multiple General Real-world Objects</h1>
+
+    <p class="lede">Depth and RGB both change drastically between transparent and opaque objects — so grasping pipelines built on them do too. MasKGrasp instead grasps from <em>instance masks</em>, a representation that stays the same regardless of what an object is made of, and that naturally tells the gripper which objects are crowding each other.</p>
+
+    <div class="actions">
+      <a class="btn primary" href="https://ieeexplore.ieee.org/document/9982130" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3v5h5M8 13h8M8 17h8M8 9h2"/><path d="M6 2h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/></svg>
+        Paper (IEEE Xplore)
+      </a>
+      <a class="btn" href="https://www.youtube.com/watch?v=iWvstHPu97Y" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m10 8 6 4-6 4V8z"/><rect x="2" y="4" width="20" height="16" rx="2"/></svg> Video</a>
+    </div>
+
+    <!-- ===== TEASER: robot photo + 2x2 pipeline panels ===== -->
+    <div class="teaser rise">
+      <div class="teaser-grid">
+        <div class="robot">
+          <img src="iros2022/imgs/teaser/teaser_robot.jpg" alt="Robotic grasping environment with a Franka Panda arm above a set of transparent and opaque objects">
+        </div>
+        <div class="panels">
+          <figure>
+            <img src="iros2022/imgs/teaser/teaser_input.png" alt="Input RGB image of the grasping scene">
+            <figcaption>Input</figcaption>
+          </figure>
+          <figure>
+            <img src="iros2022/imgs/teaser/teaser_detection.png" alt="Detected instance masks for each object regardless of transparency">
+            <figcaption>Detection</figcaption>
+          </figure>
+          <figure>
+            <img src="iros2022/imgs/teaser/teaser_grasp.png" alt="Estimated grasp pose overlaid on the scene">
+            <figcaption>Grasp pose</figcaption>
+          </figure>
+          <figure>
+            <img src="iros2022/imgs/teaser/teaser_quality.png" alt="Predicted grasp quality heatmap">
+            <figcaption>Grasp quality</figcaption>
+          </figure>
+        </div>
+      </div>
+      <figcaption><b>Fig. 1 — Overview.</b> Given an input RGB image, MasKGrasp detects instance masks for both transparent and opaque objects, then estimates a grasp pose and quality map for each instance.</figcaption>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ========================= VIDEO ========================= -->
+<section id="video" style="background:var(--bg-2); border-block:1px solid var(--hairline);">
+  <div class="wrap">
+    <div class="head rise">
+      <span class="eyebrow">Video</span>
+      <h2>Overview video.</h2>
+    </div>
+    <div class="video-wrap rise">
+      <iframe src="https://www.youtube.com/embed/iWvstHPu97Y" title="MasKGrasp overview video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= ABSTRACT ========================= -->
+<section id="abstract">
+  <div class="wrap narrow abstract rise">
+    <span class="eyebrow">Abstract</span>
+    <p>We introduce a mask-based grasping method that discerns multiple objects within a scene regardless of transparency or specularity and finds the optimal grasp position avoiding clutter. Conventional vision-based robotic grasping approaches often fail to extend to scenes containing transparent objects due to their different visual appearance. To handle the different visual characteristics, we first segment both transparent and opaque objects into instance masks &mdash; a domain-agnostic intermediate representation of both object types &mdash; using a neural network. While no labelled training dataset strongly represents both object types, we overcome this by augmenting transparent objects onto an existing large-scale dataset. Then, given the object instance masks, our method selects the top K discrete masks and robustly estimates grasp poses avoiding clutter. Through experiments, we verify that instance masks are lightweight yet provide sufficient information for vision-based grasping agnostic of appearance. On an unseen real-world test environment with complex objects, our method substantially outperforms previous methods without fine-tuning.</p>
+  </div>
+</section>
+
+<!-- ========================= THE PROBLEM ========================= -->
+<section id="problem" style="background:var(--bg-2); border-block:1px solid var(--hairline);">
+  <div class="wrap">
+    <div class="head rise">
+      <span class="eyebrow">Why depth- and RGB-based grasping breaks</span>
+      <h2>Material changes the signal. It shouldn't change the grasp.</h2>
+      <p class="sub">ClearGrasp completes noisy depth for transparent objects before grasping; GG-CNN regresses grasps straight from depth. Both inherit whatever the sensor gets wrong.</p>
+    </div>
+
+    <div class="amb-grid">
+      <div class="amb bad rise">
+        <span class="kind">Depth / RGB</span>
+        <h3>Appearance-coupled.</h3>
+        <p>Transparent surfaces don't reflect depth-sensor rays, and their RGB appearance shifts wildly with background and lighting. A pipeline trained on one material regime degrades on the other.</p>
+      </div>
+      <div class="amb good rise">
+        <span class="kind">Instance masks</span>
+        <h3>Material-agnostic.</h3>
+        <p>A mask only encodes "this region is one object" &mdash; it looks the same whether that object is a steel bottle or a wine glass. Train the grasp estimator on masks and it transfers across materials for free.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= METHOD ========================= -->
+<section id="method">
+  <div class="wrap">
+    <div class="head rise">
+      <span class="eyebrow">The pipeline</span>
+      <h2>Detect instance masks, then grasp from masks alone.</h2>
+      <p class="sub">Two CNNs: a detector trained on a transparent-augmented MS-COCO, and a grasp estimator adapted from GG-CNN to take stacked instance masks instead of depth.</p>
+    </div>
+
+    <div class="pipeline rise">
+      <div class="step">
+        <div class="num">i</div>
+        <div>
+          <h3>Synthesize transparent objects into MS-COCO</h3>
+          <p>No dataset represents opaque and transparent objects with equal weight, so we build one: sample a 3D transparent object from <span class="k">TOM-Net</span>, decompose it into a mask, attenuation map, and refractive-flow map, then composite it onto an MS-COCO image via the image-matting equation &mdash; repeated 0&ndash;3 times per image to simulate occlusion.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">ii</div>
+        <div>
+          <h3>Detect instance masks for every object</h3>
+          <p>A Mask R-CNN detector <span class="k">F</span>, trained on 114,000 augmented images, maps an input RGB image to instance masks <span class="k">M&#8321;&#8288;:&#8288;N</span> for both transparent and opaque objects &mdash; no material-specific branch required.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">iii</div>
+        <div>
+          <h3>Grasp estimation with clutter-avoidance training</h3>
+          <p>The top <span class="k">K=4</span> masks stack into a K-channel input (replacing GG-CNN's 1-channel depth). Training pairs are composed from the Jacquard dataset so that ground-truth quality is suppressed wherever another object's vicinity overlaps &mdash; teaching the network <span class="k">G</span> to avoid clutter, not just find any graspable point.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">iv</div>
+        <div>
+          <h3>Read the grasp straight off the maps</h3>
+          <p>The grasp point is the arg-max of quality map <span class="k">Q</span>; its mask index gives the angle from the matching theta map <span class="k">&Theta;<sub>i</sub></span>. Width comes for free &mdash; intersect the grasp line with that instance's mask boundary and measure the span, no extra network needed.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="two-col" style="margin-top:2.5rem;">
+      <figure class="figure rise">
+        <img class="fig" src="iros2022/imgs/png/coco_to.png" alt="Pipeline for synthesizing transparent objects onto MS-COCO images via mask, attenuation, and refractive-flow maps">
+        <figcaption><b>Fig. 2 — Dataset augmentation.</b> A background image, a transparent object's mask/attenuation/flow decomposition, and the resulting augmented image with instance mask.</figcaption>
+      </figure>
+      <figure class="figure rise">
+        <img class="fig" src="iros2022/imgs/png/overview.png" alt="Overview diagram: detection network produces instance masks, grasp estimator consumes top-K masks to produce a quality map and theta maps, yielding the best grasp">
+        <figcaption><b>Fig. 3 — Full pipeline.</b> Detection (F) produces instance masks; grasp estimation (G) consumes the top-K masks to output a quality map and per-instance theta maps.</figcaption>
+      </figure>
+    </div>
+
+    <figure class="figure rise" style="margin-top:1.5rem;">
+      <img class="fig" src="iros2022/imgs/png/kdataset.png" alt="Clutter-avoidance dataset construction: two masks and their quality maps are combined, with overlapping vicinity regions suppressed to zero in the ground-truth quality map">
+      <figcaption><b>Fig. 4 — Clutter-avoidance training data.</b> Two objects' masks and quality maps are summed; pixels where their vicinities (gray) overlap are zeroed out in the ground-truth Q map, teaching the network to avoid crowded grasps.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ========================= RESULTS ========================= -->
+<section id="results" style="background:var(--bg-2); border-block:1px solid var(--hairline);">
+  <div class="wrap">
+    <div class="head rise">
+      <span class="eyebrow">Experiments · real-world grasping</span>
+      <h2>Only method to clear 50% success on every configuration.</h2>
+      <p class="sub">Tested with a Franka Panda + RealSense 435i on 24 unseen real objects, none seen during training of any method. 13 trials per configuration.</p>
+    </div>
+
+    <figure class="figure rise" style="margin-bottom:2.5rem;">
+      <img class="fig" src="iros2022/imgs/png/robot_and_objects.png" alt="Real-world grasping environment with the Franka Panda arm, plus the plain and complex test object sets">
+      <figcaption><b>Fig. 5 — Test setup.</b> (a) Grasping environment. (b) 10 plain objects &mdash; simple, cylindrical, plainly textured. (c) 14 complex objects &mdash; toys and transparent items with challenging geometry.</figcaption>
+    </figure>
+
+    <div class="table-scroll rise">
+      <table>
+        <caption><b>Table I — Real-world grasp success rate.</b> T = transparent, O = opaque. Bold = best per configuration.</caption>
+        <thead>
+          <tr><th>Configuration</th><th>MasKGrasp (Ours)</th><th>ClearGrasp</th><th>GG-CNN</th></tr>
+        </thead>
+        <tbody>
+          <tr class="ours"><td>Plain T.</td><td class="best">53.8%</td><td class="best">53.8%</td><td>38.4%</td></tr>
+          <tr class="ours"><td>Plain O.</td><td>53.8%</td><td>53.8%</td><td class="best">76.7%</td></tr>
+          <tr class="ours"><td>Complex T.</td><td class="best">61.5%</td><td>46.1%</td><td>15.3%</td></tr>
+          <tr class="ours"><td>Complex O.</td><td class="best">69.2%</td><td class="best">69.2%</td><td>53.8%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="tbl-note">GG-CNN wins on Plain O. (its exact training regime) but collapses on transparent objects from noisy depth. ClearGrasp ties us on plain scenes but falls behind on Complex T. MasKGrasp is the only method above 50% everywhere &mdash; and depth completion costs ClearGrasp ~1.19s per grasp versus ~0.001s for ours.</p>
+
+    <div class="two-col" style="margin-top:2.5rem;">
+      <figure class="figure rise">
+        <img class="fig" src="iros2022/imgs/png/qmap_ggcnn.png" alt="Quality map comparison between MasKGrasp and GG-CNN on opaque and transparent scenes">
+        <figcaption><b>Fig. 6 — vs. GG-CNN.</b> GG-CNN's depth input turns to noise on transparent objects, and its Q map follows; ours stays clean on both materials.</figcaption>
+      </figure>
+      <figure class="figure rise">
+        <img class="fig" src="iros2022/imgs/png/qmap_cleargrasp.png" alt="Quality map comparison between MasKGrasp and ClearGrasp on plain and complex object scenes">
+        <figcaption><b>Fig. 7 — vs. ClearGrasp.</b> ClearGrasp completes depth well for simple cylinders close to its training distribution, but fails on complex geometry like edged cups and flat jars.</figcaption>
+      </figure>
+    </div>
+
+    <div class="table-scroll rise" style="margin-top:2.5rem;">
+      <table>
+        <caption><b>Table II — Effect of clutter-avoidance training.</b> Grasp success rate with vs. without the clutter-aware training scheme.</caption>
+        <thead><tr><th>Configuration</th><th>Clutter</th><th>No clutter</th></tr></thead>
+        <tbody>
+          <tr class="ours"><td>With clutter avoidance</td><td class="best">69.2%</td><td class="best">92.3%</td></tr>
+          <tr><td>Without clutter avoidance</td><td>25.3%</td><td>84.6%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="tbl-note">Both variants do fine when objects are isolated; only the clutter-aware model holds up once objects are touching.</p>
+
+    <figure class="figure rise" style="margin-top:1.5rem;">
+      <img class="fig" src="iros2022/imgs/png/crowded_grasp.png" alt="Quality maps with and without clutter avoidance across two cluttered scenes">
+      <figcaption><b>Fig. 8 — Clutter avoidance in the Q map.</b> Without it (bottom row), the model happily proposes grasps that would collide with a neighboring object; with it (top row), those pixels are suppressed.</figcaption>
+    </figure>
+
+    <div class="two-col" style="margin-top:2.5rem;">
+      <div>
+        <div class="table-scroll rise">
+          <table>
+            <caption><b>Table III — Instance segmentation with augmentation.</b> Mask R-CNN trained on MS-COCO vs. our transparent-augmented version.</caption>
+            <thead><tr><th>Eval set</th><th>Method</th><th>AP&#8320;&#8320;</th><th>AP&#8320;&#8322;&#8322;</th><th>IoU</th></tr></thead>
+            <tbody>
+              <tr><td>MS-COCO(T)</td><td>Baseline</td><td>51.1</td><td>28.3</td><td>0.523</td></tr>
+              <tr class="ours"><td>MS-COCO(T)</td><td>Ours</td><td class="best">57.4</td><td class="best">36.7</td><td class="best">0.544</td></tr>
+              <tr><td>MS-COCO(O)</td><td>Baseline</td><td>27.2</td><td>14.2</td><td class="best">0.358</td></tr>
+              <tr class="ours"><td>MS-COCO(O)</td><td>Ours</td><td class="best">27.7</td><td class="best">14.8</td><td>0.337</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="tbl-note">The augmentation lifts transparent-object AP substantially while keeping opaque-object accuracy on par.</p>
+      </div>
+      <figure class="figure rise">
+        <img class="fig" src="iros2022/imgs/png/to_vs_pure.png" alt="Segmentation comparison with and without transparent augmentation across ClearGrasp, our robot environment, and MS-COCO images">
+        <figcaption><b>Fig. 9 — Segmentation, with vs. without augmentation.</b> The augmented model (middle row) catches transparent objects the MS-COCO-only baseline (bottom row) misses or blends into the background.</figcaption>
+      </figure>
+    </div>
+
+    <figure class="figure rise" style="margin-top:2.5rem;">
+      <img class="fig" src="iros2022/imgs/png/maskvsdepth.png" alt="Quality maps regressed from instance masks versus from depth, showing near-identical results">
+      <figcaption><b>Fig. 10 — Mask vs. depth as grasp-estimator input.</b> Two GG-CNN variants, one fed masks and one fed depth, produce visually near-identical Q maps &mdash; 77.5% vs. 80.6% accuracy on the Jacquard dataset. Masks carry almost as much grasping signal as depth, with none of depth's material sensitivity.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ========================= CONTRIBUTIONS ========================= -->
+<section id="contributions">
+  <div class="wrap">
+    <div class="head rise">
+      <span class="eyebrow">Contributions</span>
+      <h2>What MasKGrasp adds.</h2>
+    </div>
+    <div class="contribs">
+      <div class="contrib rise">
+        <div class="n">01</div>
+        <p>A mask-based grasping approach that handles opaque and transparent objects with the same network, showing instance masks carry enough geometric context even in multi-object scenes.</p>
+      </div>
+      <div class="contrib rise">
+        <div class="n">02</div>
+        <p>A grasp estimator that explicitly considers free space between instance masks, predicting the highest-probability grasp while avoiding cluttered regions.</p>
+      </div>
+      <div class="contrib rise">
+        <div class="n">03</div>
+        <p>A large-scale instance segmentation dataset covering both object types, built by augmenting MS-COCO with synthetic transparent objects &mdash; no new manual annotation required.</p>
+      </div>
+      <div class="contrib rise">
+        <div class="n">04</div>
+        <p>A Mask R-CNN trained on that dataset generalizes robustly to real transparent and opaque objects alike, without sacrificing accuracy on ordinary objects.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= LIMITATIONS ========================= -->
+<section id="limitations" style="background:var(--bg-2); border-block:1px solid var(--hairline);">
+  <div class="wrap narrow">
+    <div class="head rise">
+      <span class="eyebrow">Conclusion &amp; future work</span>
+      <h2>Honest edges.</h2>
+      <p class="sub">MasKGrasp generalizes to unseen transparent and opaque objects in the real world without fine-tuning &mdash; within the bounds of a 2D grasp representation.</p>
+    </div>
+    <div class="limits">
+      <div class="limit rise"><span class="dot"></span><p><b>Fixed grasping height.</b> MasKGrasp is a 2D planar-grasp algorithm and struggles with objects that need a grasp height it doesn't assume.</p></div>
+      <div class="limit rise"><span class="dot"></span><p><b>No full 6-DoF pose.</b> Aggregating instance masks across multiple views could recover 3D structure &mdash; even for transparent and specular scenes that defeat depth sensors &mdash; and extend to full 6-DoF grasping and more complex manipulation.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= BIBTEX ========================= -->
+<section id="bibtex">
+  <div class="wrap narrow">
+    <div class="head rise">
+      <span class="eyebrow">Cite</span>
+      <h2>BibTeX</h2>
+    </div>
+    <div class="bibtex rise">
+      <button class="copy-btn" id="copyBib">Copy</button>
+      <pre id="bibText">@inproceedings{lee2022maskgrasp,
+  author={Lee, Junho and Hur, Junhwa and Hwang, Inwoo and Kim, Young Min},
+  booktitle={2022 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)},
+  title={{MasKGrasp}: Mask-based Grasping for Scenes with Multiple General Real-world Objects},
+  year={2022},
+  pages={3137-3144},
+  doi={10.1109/IROS47612.2022.9982130}
+}</pre>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ========================= FOOTER ========================= -->
+<footer>
+  <div class="wrap">
+    <p>MasKGrasp &middot; Mask-based Grasping for Scenes with Multiple General Real-world Objects</p>
+    <p>IEEE/RSJ IROS 2022 &middot; Project page</p>
+  </div>
+</footer>
+
+<script>
+(function(){
+  const els = document.querySelectorAll('.rise');
+  if(!('IntersectionObserver' in window)){ els.forEach(e=>e.classList.add('in')); return; }
+  const io = new IntersectionObserver((entries)=>{
+    entries.forEach(e=>{ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }});
+  },{ threshold:.12 });
+  els.forEach(e=>io.observe(e));
+})();
+
+(function(){
+  const btn = document.getElementById('copyBib');
+  const txt = document.getElementById('bibText');
+  if(!btn) return;
+  btn.addEventListener('click', async () => {
+    try{
+      await navigator.clipboard.writeText(txt.textContent);
+      const old = btn.textContent; btn.textContent = 'Copied';
+      setTimeout(()=>btn.textContent = old, 1400);
+    }catch(_){
+      const old = btn.textContent; btn.textContent = 'Select all →';
+      setTimeout(()=>btn.textContent = old, 1400);
+    }
+  });
+})();
+</script>
+</body>
+</html>
