@@ -248,6 +248,7 @@
   .card:hover{ background:var(--bg-2); }
   .card .thumb{ width:120px; height:90px; border-radius:8px; overflow:hidden; border:1px solid var(--hairline); background:var(--bg-2); }
   .card .thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .card .thumb video{ width:100%; height:100%; object-fit:cover; display:block; }
   @media (max-width:600px){
     .card{ grid-template-columns:1fr; }
     .card .thumb{ width:100%; height:150px; }
@@ -413,6 +414,19 @@
     </div>
 
     <div class="card-list rise">
+
+      <div class="card">
+        <div class="thumb"><video src="images/poil_rw_mug.mp4" autoplay loop muted playsinline aria-label="POIL demonstration thumbnail"></video></div>
+        <div class="body">
+          <h3><a href="https://arxiv.org/abs/2609.30404">POIL: Point-based One-Shot Imitation Learning with Stable Dynamical Systems</a></h3>
+          <p class="authors">Sang Min Kim, Jinwoo Seo, Hyeongjun Heo, <b>Junho Lee</b>, Yonghyeon Lee<sup>*</sup>, Young Min Kim<sup>*</sup><br><span>(*Co-corresponding authors)</span></p>
+          <p class="venue"><em>Preprint</em>, 2026</p>
+          <div class="links">
+            <a class="iconlink" href="https://arxiv.org/abs/2609.30404"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3v5h5M8 13h8M8 17h8M8 9h2"/><path d="M6 2h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/></svg>Paper</a>
+            <a class="iconlink" href="https://sangminkim-99.github.io/poil/"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 14 21 3M15 3h6v6M18 13v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h6"/></svg>Project</a>
+          </div>
+        </div>
+      </div>
 
       <div class="card">
         <div class="thumb"><img src="images/INGRID.png" alt="INGRID thumbnail"></div>
