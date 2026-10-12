@@ -398,14 +398,22 @@
 </section>
 
 <!-- ========================= PUBLICATIONS ========================= -->
-<section id="publications" style="background:var(--bg-2); border-block:1px solid var(--hairline);">
+<section id="publications" data-view="selected" style="background:var(--bg-2); border-block:1px solid var(--hairline);">
+  <style>
+    #publications .publication-head{ display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; }
+    #publications .publication-toggle{ cursor:pointer; }
+    #publications[data-view="selected"] .card:not([data-first-author]){ display:none; }
+  </style>
   <div class="wrap">
-    <div class="head rise">
-      <span class="eyebrow">Research</span>
-      <h2>Publications.</h2>
+    <div class="head rise publication-head">
+      <div>
+        <span class="eyebrow">Research</span>
+        <h2 id="publications-heading" aria-live="polite">Selected Publications.</h2>
+      </div>
+      <button class="btn publication-toggle" id="publication-toggle" type="button" aria-controls="publication-list" aria-expanded="false">See all publications</button>
     </div>
 
-    <div class="card-list rise">
+    <div class="card-list rise" id="publication-list">
 
       <div class="card">
         <div class="thumb"><video src="images/poil_rw_mug.mp4" autoplay loop muted playsinline aria-label="POIL demonstration thumbnail"></video></div>
@@ -420,7 +428,7 @@
         </div>
       </div>
 
-      <div class="card">
+      <div class="card" data-first-author>
         <div class="thumb"><img src="images/INGRID.png" alt="INGRID thumbnail"></div>
         <div class="body">
           <h3><a href="pdfs/rss_final_ingrid.pdf">INGRID: Interactive Geometry and Instance Identification for Occluded Scenes</a></h3>
@@ -448,7 +456,7 @@
       </div>
 
 
-      <div class="card">
+      <div class="card" data-first-author>
         <div class="thumb"><img src="images/thesis_thumbnail.png" alt="PhD thesis thumbnail"></div>
         <div class="body">
           <h3><a href="pdfs/thesis.pdf">Toward Reliable Vision-Based Robotic Grasping in Transparency and Clutter</a></h3>
@@ -460,7 +468,7 @@
         </div>
       </div>
 
-      <div class="card">
+      <div class="card" data-first-author>
         <div class="thumb"><img src="images/thumbnail2.png" alt="NFL thumbnail"></div>
         <div class="body">
           <h3><a href="https://ieeexplore.ieee.org/document/10328050">NFL: Normal Field Learning for 6-DoF Grasping of Transparent Objects</a></h3>
@@ -475,7 +483,7 @@
         </div>
       </div>
 
-      <div class="card">
+      <div class="card" data-first-author>
         <div class="thumb"><img src="images/maskgrasp.gif" alt="MasKGrasp thumbnail"></div>
         <div class="body">
           <h3><a href="https://ieeexplore.ieee.org/document/9982130">MasKGrasp: Mask-based Grasping for Scenes with Multiple General Real-world Objects</a></h3>
@@ -505,6 +513,21 @@
     </div>
   </div>
 </section>
+
+<script>
+(function(){
+  const section = document.getElementById('publications');
+  const button = document.getElementById('publication-toggle');
+  const heading = document.getElementById('publications-heading');
+  button.addEventListener('click', function(){
+    const showAll = section.dataset.view === 'selected';
+    section.dataset.view = showAll ? 'all' : 'selected';
+    heading.textContent = showAll ? 'All Publications.' : 'Selected Publications.';
+    button.textContent = showAll ? 'See selected publications' : 'See all publications';
+    button.setAttribute('aria-expanded', String(showAll));
+  });
+})();
+</script>
 
 <!-- ========================= PROJECTS ========================= -->
 <section id="projects">
